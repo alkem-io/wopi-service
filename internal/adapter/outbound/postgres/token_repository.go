@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres/generated"
 	"github.com/alkem-io/wopi-service/internal/domain/model"
@@ -13,17 +12,17 @@ import (
 
 // TokenRepository implements port.TokenRepository using PostgreSQL.
 type TokenRepository struct {
-	pool *pgxpool.Pool
+	db generated.DBTX
 }
 
 // NewTokenRepository creates a new TokenRepository.
-func NewTokenRepository(pool *pgxpool.Pool) *TokenRepository {
-	return &TokenRepository{pool: pool}
+func NewTokenRepository(db generated.DBTX) *TokenRepository {
+	return &TokenRepository{db: db}
 }
 
 // Create stores a new access token.
 func (r *TokenRepository) Create(ctx context.Context, token *model.AccessToken) error {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	return q.InsertToken(ctx, generated.InsertTokenParams{
 		ID:          uuidToPgtype(token.ID),
 		Token:       token.Token,
@@ -37,7 +36,7 @@ func (r *TokenRepository) Create(ctx context.Context, token *model.AccessToken) 
 
 // FindByToken retrieves a token by its opaque value. Returns nil if not found.
 func (r *TokenRepository) FindByToken(ctx context.Context, tokenValue string) (*model.AccessToken, error) {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	row, err := q.FindByToken(ctx, tokenValue)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -58,7 +57,7 @@ func (r *TokenRepository) FindByToken(ctx context.Context, tokenValue string) (*
 
 // DeleteByID removes a token by its UUID.
 func (r *TokenRepository) DeleteByID(ctx context.Context, id string) error {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	uid, err := parseUUID(id)
 	if err != nil {
 		return err
@@ -68,6 +67,6 @@ func (r *TokenRepository) DeleteByID(ctx context.Context, id string) error {
 
 // DeleteExpired removes all expired tokens and returns the count deleted.
 func (r *TokenRepository) DeleteExpired(ctx context.Context) (int64, error) {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	return q.DeleteExpiredTokens(ctx)
 }

@@ -3,25 +3,23 @@ package postgres
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres/generated"
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 )
 
 // SessionRepository implements port.SessionRepository using PostgreSQL.
 type SessionRepository struct {
-	pool *pgxpool.Pool
+	db generated.DBTX
 }
 
 // NewSessionRepository creates a new SessionRepository.
-func NewSessionRepository(pool *pgxpool.Pool) *SessionRepository {
-	return &SessionRepository{pool: pool}
+func NewSessionRepository(db generated.DBTX) *SessionRepository {
+	return &SessionRepository{db: db}
 }
 
 // Create stores a new WOPI session.
 func (r *SessionRepository) Create(ctx context.Context, session *model.WOPISession) error {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	return q.InsertSession(ctx, generated.InsertSessionParams{
 		ID:        uuidToPgtype(session.ID),
 		FileID:    session.FileID,
@@ -33,7 +31,7 @@ func (r *SessionRepository) Create(ctx context.Context, session *model.WOPISessi
 
 // FindByFileID retrieves all active sessions for a file.
 func (r *SessionRepository) FindByFileID(ctx context.Context, fileID string) ([]model.WOPISession, error) {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	rows, err := q.FindSessionsByFileID(ctx, fileID)
 	if err != nil {
 		return nil, err
@@ -53,7 +51,7 @@ func (r *SessionRepository) FindByFileID(ctx context.Context, fileID string) ([]
 
 // DeleteByTokenID removes sessions associated with a token.
 func (r *SessionRepository) DeleteByTokenID(ctx context.Context, tokenID string) error {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	uid, err := parseUUID(tokenID)
 	if err != nil {
 		return err

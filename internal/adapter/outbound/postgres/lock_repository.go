@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres/generated"
 	"github.com/alkem-io/wopi-service/internal/domain/model"
@@ -13,17 +12,17 @@ import (
 
 // LockRepository implements port.LockRepository using PostgreSQL.
 type LockRepository struct {
-	pool *pgxpool.Pool
+	db generated.DBTX
 }
 
 // NewLockRepository creates a new LockRepository.
-func NewLockRepository(pool *pgxpool.Pool) *LockRepository {
-	return &LockRepository{pool: pool}
+func NewLockRepository(db generated.DBTX) *LockRepository {
+	return &LockRepository{db: db}
 }
 
 // Create inserts or replaces a lock for a file.
 func (r *LockRepository) Create(ctx context.Context, lock *model.Lock) error {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	return q.UpsertLock(ctx, generated.UpsertLockParams{
 		ID:        uuidToPgtype(lock.ID),
 		FileID:    lock.FileID,
@@ -35,7 +34,7 @@ func (r *LockRepository) Create(ctx context.Context, lock *model.Lock) error {
 
 // FindByFileID retrieves the active lock for a file. Returns nil if none.
 func (r *LockRepository) FindByFileID(ctx context.Context, fileID string) (*model.Lock, error) {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	row, err := q.FindLockByFileID(ctx, fileID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -54,7 +53,7 @@ func (r *LockRepository) FindByFileID(ctx context.Context, fileID string) (*mode
 
 // UpdateLockID atomically replaces the lock ID and expiry for a file.
 func (r *LockRepository) UpdateLockID(ctx context.Context, fileID, newLockID string, lock model.Lock) error {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	return q.UpdateLockIDAndExpiry(ctx, generated.UpdateLockIDAndExpiryParams{
 		FileID:    fileID,
 		LockID:    newLockID,
@@ -64,7 +63,7 @@ func (r *LockRepository) UpdateLockID(ctx context.Context, fileID, newLockID str
 
 // RefreshExpiry extends the lock expiry for a file.
 func (r *LockRepository) RefreshExpiry(ctx context.Context, fileID string, lock *model.Lock) error {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	return q.UpdateLockExpiry(ctx, generated.UpdateLockExpiryParams{
 		FileID:    fileID,
 		ExpiresAt: timestamptzFromTime(lock.ExpiresAt),
@@ -73,12 +72,12 @@ func (r *LockRepository) RefreshExpiry(ctx context.Context, fileID string, lock 
 
 // DeleteByFileID removes the lock for a file.
 func (r *LockRepository) DeleteByFileID(ctx context.Context, fileID string) error {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	return q.DeleteLockByFileID(ctx, fileID)
 }
 
 // DeleteExpired removes all expired locks and returns the count deleted.
 func (r *LockRepository) DeleteExpired(ctx context.Context) (int64, error) {
-	q := generated.New(r.pool)
+	q := generated.New(r.db)
 	return q.DeleteExpiredLocks(ctx)
 }
