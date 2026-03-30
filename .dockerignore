@@ -1,0 +1,12 @@
+.git/
+.github/
+.specify/
+.claude/
+specs/
+*.md
+.gitignore
+.dockerignore
+.golangci.yml
+.env*
+*.log
+coverage.*

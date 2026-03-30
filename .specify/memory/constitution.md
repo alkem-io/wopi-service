@@ -254,10 +254,12 @@ without a constitution amendment:
 | Query generation | sqlc                     |
 | Database         | PostgreSQL               |
 | Architecture     | Hexagonal (ports/adapters)|
+| HTTP router      | chi v5                   |
 | Logging          | Zap (structured)         |
-| Messaging        | RabbitMQ via Watermill    |
+| Authorization    | NATS via auth-evaluation-service |
+| File I/O         | file-service-go (HTTP, cluster-internal) |
 | WOPI client      | Collabora Online (primary)|
-| Integration      | Alkemio Server (Node/TS) |
+| Identity         | Oathkeeper JWT (alkemio_actor_id) |
 
 Additional dependencies SHOULD be minimized. The Go standard library
 MUST be preferred over third-party packages when functionality is
@@ -267,21 +269,29 @@ equivalent.
 
 The WOPI service integrates with two primary external systems:
 
-**Alkemio Server** (located at `/Users/antst/work/alkemio/server`):
-- Built with NestJS/TypeScript, uses Ory Kratos for identity
-  management and JWT-based authentication (JWKS endpoint validation).
-- Authorization is policy-based: each domain entity carries an
-  `AuthorizationPolicy`; privileges are checked via
-  `AuthorizationService.isAccessGranted()`.
-- Storage uses a pluggable adapter pattern
-  (`storage.service.interface.ts`) with Document entities linking
-  to file storage via `externalID`.
-- An existing `collaborative-document-integration` service
-  communicates via RabbitMQ (patterns: INFO, WHO, SAVE, FETCH).
-- The WOPI service MUST integrate with these existing patterns:
-  authenticate via Alkemio JWT/Kratos tokens, delegate authorization
-  checks to Alkemio's policy engine, and use Alkemio's storage
-  layer for file persistence.
+**Oathkeeper** (reverse proxy):
+- Sits in front of the token issuance endpoint.
+- Injects JWT with `alkemio_actor_id` claim into Authorization
+  header after authenticating via Kratos.
+- WOPI protocol endpoints (called by Collabora) are NOT routed
+  through Oathkeeper — they use opaque access tokens.
+
+**Authorization Evaluation Service** (Go, NATS):
+- Subject: `auth.evaluate`
+- Input: `{agentId, privilege, authorizationPolicyId}`
+- Output: `{allowed, reason}`
+- Used to check READ and UPDATE_CONTENT privileges before issuing
+  WOPI access tokens.
+
+**Alkemio PostgreSQL Database** (read-only):
+- Document table provides externalID, authorizationPolicyId,
+  displayName, mimeType, and size for WOPI operations.
+
+**file-service-go** (Go, HTTP, cluster-internal):
+- Private endpoints for file read/write/delete.
+- GetFile reads via `GET /internal/storage/:externalID`.
+- PutFile writes via `PUT /internal/storage/document/:documentId`
+  (store-and-link: writes file + updates document record).
 
 **Collabora Online**:
 - Acts as the WOPI client consuming this service's WOPI endpoints.
@@ -289,13 +299,10 @@ The WOPI service integrates with two primary external systems:
 - Proof key validation ensures request authenticity.
 
 **Communication patterns**:
-- RabbitMQ (via Watermill) SHOULD be used for async operations
-  consistent with the existing collaborative-document-integration
-  patterns.
-- REST/HTTP for synchronous WOPI protocol endpoints.
-- Communication contracts between the WOPI service and these systems
-  MUST be documented and versioned. Breaking changes MUST be
-  coordinated across repositories.
+- NATS for authorization checks (auth-evaluation-service).
+- HTTP for file I/O (file-service-go private endpoints).
+- HTTP for WOPI protocol endpoints (Collabora → this service).
+- Communication contracts MUST be documented and versioned.
 
 ## Governance
 

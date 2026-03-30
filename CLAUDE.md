@@ -7,10 +7,13 @@ integration into the Alkemio platform.
 
 - **Language**: Go 1.25
 - **Database**: PostgreSQL, pgx v5 driver, sqlc for query generation
-- **Messaging**: RabbitMQ via Watermill
+- **Authorization**: NATS via authorization-evaluation-service (`auth.evaluate`)
+- **Identity**: Oathkeeper JWT (`alkemio_actor_id` claim) on token issuance endpoint
+- **File I/O**: file-service-go private endpoints (HTTP, cluster-internal)
 - **Logging**: Zap (structured)
+- **HTTP Router**: chi v5
 - **Architecture**: Hexagonal (ports and adapters)
-- **Alkemio Server**: Node/TypeScript at `/Users/antst/work/alkemio/server`
+- **Alkemio DB**: Read-only access for document metadata lookup
 
 ## Architecture Rules
 
@@ -20,6 +23,19 @@ integration into the Alkemio platform.
 - No adapter imports another adapter directly
 - SQL queries defined in `.sql` files compiled via sqlc — no
   hand-written queries outside migrations
+
+## Endpoint Architecture
+
+**Behind Oathkeeper** (actor identity from JWT):
+- `POST /wopi/token` — issue WOPI access token for a document
+
+**WOPI protocol** (opaque access token, called by Collabora):
+- `GET /wopi/files/{file_id}` — CheckFileInfo
+- `GET /wopi/files/{file_id}/contents` — GetFile
+- `POST /wopi/files/{file_id}/contents` — PutFile
+- `POST /wopi/files/{file_id}` — Lock/Unlock/RefreshLock/UnlockAndRelock
+- `GET /wopi/discovery` — Discovery proxy
+- `GET /health` — Health check
 
 ## Anti-Patterns — Strictly Prohibited
 
@@ -46,15 +62,38 @@ integration into the Alkemio platform.
 - Verify latest dependency versions online (pkg.go.dev, GitHub
   releases) — never trust training data
 - If something is unclear, ask or search — do not guess
+- Use `actorId` internally, never `userId`
 
 ## Integration Context
 
-- Auth delegates to Alkemio's Ory Kratos / JWT / policy engine
-- Storage delegates to Alkemio's storage management layer
-- RabbitMQ patterns align with existing
-  `collaborative-document-integration` service (INFO, WHO, SAVE,
-  FETCH)
+- Auth via NATS `auth.evaluate` (agentId + privilege +
+  authorizationPolicyId)
+- Document metadata from Alkemio PostgreSQL (read-only user)
+- File content via file-service-go private endpoints
+  (`GET /internal/storage/:externalID`,
+  `PUT /internal/storage/document/:documentId`)
+- Actor identity from Oathkeeper JWT (`alkemio_actor_id` claim)
 - WOPI proof key validation required on all requests from Collabora
+- Oathkeeper config at
+  `/Users/antst/work/alkemio/server/.build/ory/oathkeeper/`
+
+## Configuration (env vars)
+
+Database (own, matching oidc-service pattern):
+- `WOPI_DATABASE_HOST/PORT/USERNAME/PASSWORD/NAME/TIMEOUT`
+
+Alkemio DB (read-only):
+- `ALKEMIO_DATABASE_HOST/PORT/USERNAME/PASSWORD/NAME`
+
+NATS:
+- `NATS_URL`
+
+File service:
+- `FILE_SERVICE_URL` (e.g., `http://file-service-go:4003`)
+
+Service:
+- `WOPI_COLLABORA_URL`, `WOPI_BASE_URL`, `WOPI_TOKEN_SECRET`,
+  `WOPI_SERVER_PORT`
 
 ## Full Constitution
 
