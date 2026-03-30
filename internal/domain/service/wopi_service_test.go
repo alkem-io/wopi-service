@@ -255,6 +255,150 @@ func TestPutFile_LockMatch(t *testing.T) {
 	}
 }
 
+// --- Additional error path tests ---
+
+func TestGetFile_DocumentNotFound(t *testing.T) {
+	fileSvc := newMockFileService()
+	// No doc in fileSvc.docs
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	token := makeToken("missing-doc", "read")
+
+	_, err := svc.GetFile(context.Background(), token)
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestCheckFileInfo_ErrorFromRepo(t *testing.T) {
+	fileSvc := &errorFileService{err: context.DeadlineExceeded}
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	token := makeToken("doc-1", "read")
+
+	_, err := svc.CheckFileInfo(context.Background(), token)
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestGetFile_ErrorFromReadFile(t *testing.T) {
+	fileSvc := newMockFileService()
+	fileSvc.docs["doc-1"] = &model.Document{ID: "doc-1"}
+	// ReadFile will fail because no file for doc-1
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	token := makeToken("doc-1", "read")
+
+	_, err := svc.GetFile(context.Background(), token)
+	if err == nil {
+		t.Error("expected error from ReadFile")
+	}
+}
+
+func TestPutFile_ErrorFromLockRepo(t *testing.T) {
+	fileSvc := newMockFileService()
+	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
+	svc := NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", zap.NewNop())
+	token := makeToken("doc-1", "read,write")
+
+	_, err := svc.PutFile(context.Background(), token, "", strings.NewReader("data"))
+	if err == nil {
+		t.Error("expected error from lock repo")
+	}
+}
+
+func TestLock_ErrorFromRepo(t *testing.T) {
+	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+
+	err := svc.Lock(context.Background(), "doc-1", "lock-1")
+	if err == nil {
+		t.Error("expected error from lock repo")
+	}
+}
+
+func TestUnlock_ErrorFromRepo(t *testing.T) {
+	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+
+	err := svc.Unlock(context.Background(), "doc-1", "lock-1")
+	if err == nil {
+		t.Error("expected error from lock repo")
+	}
+}
+
+func TestRefreshLock_ErrorFromRepo(t *testing.T) {
+	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+
+	err := svc.RefreshLock(context.Background(), "doc-1", "lock-1")
+	if err == nil {
+		t.Error("expected error from lock repo")
+	}
+}
+
+func TestUnlockAndRelock_ErrorFromRepo(t *testing.T) {
+	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+
+	err := svc.UnlockAndRelock(context.Background(), "doc-1", "new", "old")
+	if err == nil {
+		t.Error("expected error from lock repo")
+	}
+}
+
+func TestRefreshLock_NoLock(t *testing.T) {
+	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	err := svc.RefreshLock(context.Background(), "doc-1", "lock-1")
+
+	var conflictErr *LockConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected LockConflictError, got %v", err)
+	}
+}
+
+func TestUnlockAndRelock_NoLock(t *testing.T) {
+	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	err := svc.UnlockAndRelock(context.Background(), "doc-1", "new", "old")
+
+	var conflictErr *LockConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected LockConflictError, got %v", err)
+	}
+}
+
+// --- Error-producing mocks ---
+
+type errorFileService struct {
+	err error
+}
+
+func (e *errorFileService) FindByID(_ context.Context, _ string) (*model.Document, error) {
+	return nil, e.err
+}
+func (e *errorFileService) ReadFile(_ context.Context, _ string) (io.ReadCloser, error) {
+	return nil, e.err
+}
+func (e *errorFileService) WriteFile(_ context.Context, _ string, _ io.Reader) (*port.FileWriteResult, error) {
+	return nil, e.err
+}
+func (e *errorFileService) FileExists(_ context.Context, _ string) (bool, error) {
+	return false, e.err
+}
+
+type errorLockRepo struct {
+	err error
+}
+
+func (e *errorLockRepo) Create(_ context.Context, _ *model.Lock) error { return e.err }
+func (e *errorLockRepo) FindByFileID(_ context.Context, _ string) (*model.Lock, error) {
+	return nil, e.err
+}
+func (e *errorLockRepo) UpdateLockID(_ context.Context, _, _ string, _ model.Lock) error {
+	return e.err
+}
+func (e *errorLockRepo) RefreshExpiry(_ context.Context, _ string, _ *model.Lock) error { return e.err }
+func (e *errorLockRepo) DeleteByFileID(_ context.Context, _ string) error               { return e.err }
+func (e *errorLockRepo) DeleteExpired(_ context.Context) (int64, error)                 { return 0, e.err }
+
 // --- Lock operation tests (US2) ---
 
 func TestLock_Acquire(t *testing.T) {

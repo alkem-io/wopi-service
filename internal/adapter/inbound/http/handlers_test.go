@@ -446,6 +446,321 @@ func (m *mockDiscoveryClientForHandler) FetchDiscovery(_ context.Context) (*port
 	return m.data, m.err
 }
 
+// --- GetFile error paths ---
+
+func TestWOPIHandler_GetFile_FileNotFound(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID}
+	// No file in fileSvc.files → ReadFile returns ErrDocumentNotFound
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	rr := httptest.NewRecorder()
+	handler.GetFile(rr, reqWithToken(http.MethodGet, "/wopi/files/"+docID+"/contents", nil, token))
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rr.Code)
+	}
+}
+
+func TestWOPIHandler_GetFile_NoToken(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	rr := httptest.NewRecorder()
+	handler.GetFile(rr, httptest.NewRequest(http.MethodGet, "/wopi/files/f1/contents", nil))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
+
+// --- PutFile error paths ---
+
+func TestWOPIHandler_PutFile_NotAuthorized(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	token := &model.AccessToken{FileID: "f1", Permissions: "read",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/f1/contents", strings.NewReader("data"), token)
+	rr := httptest.NewRecorder()
+	handler.PutFileContents(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rr.Code)
+	}
+}
+
+func TestWOPIHandler_PutFile_NoToken(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	req := httptest.NewRequest(http.MethodPost, "/wopi/files/f1/contents", strings.NewReader("data"))
+	rr := httptest.NewRecorder()
+	handler.PutFileContents(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
+
+func TestWOPIHandler_PutFile_LockMismatch(t *testing.T) {
+	handler, fileSvc, lockRepo := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID}
+	lockRepo.locks[docID] = &model.Lock{
+		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID+"/contents", strings.NewReader("data"), token)
+	req.Header.Set("X-WOPI-Lock", "wrong-lock")
+	rr := httptest.NewRecorder()
+	handler.PutFileContents(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", rr.Code)
+	}
+}
+
+// --- Lock handler no-token paths ---
+
+func TestWOPIHandler_Lock_NoToken(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	req := httptest.NewRequest(http.MethodPost, "/wopi/files/f1", nil)
+	req.Header.Set("X-WOPI-Override", "LOCK")
+	req.Header.Set("X-WOPI-Lock", "lock-1")
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
+
+func TestWOPIHandler_Unlock_NoToken(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	req := httptest.NewRequest(http.MethodPost, "/wopi/files/f1", nil)
+	req.Header.Set("X-WOPI-Override", "UNLOCK")
+	req.Header.Set("X-WOPI-Lock", "lock-1")
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
+
+func TestWOPIHandler_RefreshLock_NoToken(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	req := httptest.NewRequest(http.MethodPost, "/wopi/files/f1", nil)
+	req.Header.Set("X-WOPI-Override", "REFRESH_LOCK")
+	req.Header.Set("X-WOPI-Lock", "lock-1")
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
+
+func TestWOPIHandler_UnlockAndRelock_NoToken(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	req := httptest.NewRequest(http.MethodPost, "/wopi/files/f1", nil)
+	req.Header.Set("X-WOPI-Override", "LOCK")
+	req.Header.Set("X-WOPI-Lock", "new")
+	req.Header.Set("X-WOPI-OldLock", "old")
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
+
+// --- Unlock conflict paths ---
+
+func TestWOPIHandler_Unlock_Conflict(t *testing.T) {
+	handler, _, lockRepo := setupWOPIHandler()
+	docID := uuid.New().String()
+	lockRepo.locks[docID] = &model.Lock{
+		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "UNLOCK")
+	req.Header.Set("X-WOPI-Lock", "wrong-lock")
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", rr.Code)
+	}
+	if rr.Header().Get("X-WOPI-Lock") != "lock-A" {
+		t.Errorf("X-WOPI-Lock = %q, want lock-A", rr.Header().Get("X-WOPI-Lock"))
+	}
+}
+
+func TestWOPIHandler_RefreshLock_Conflict(t *testing.T) {
+	handler, _, lockRepo := setupWOPIHandler()
+	docID := uuid.New().String()
+	lockRepo.locks[docID] = &model.Lock{
+		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "REFRESH_LOCK")
+	req.Header.Set("X-WOPI-Lock", "wrong-lock")
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", rr.Code)
+	}
+}
+
+func TestWOPIHandler_UnlockAndRelock_Conflict(t *testing.T) {
+	handler, _, lockRepo := setupWOPIHandler()
+	docID := uuid.New().String()
+	lockRepo.locks[docID] = &model.Lock{
+		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "LOCK")
+	req.Header.Set("X-WOPI-Lock", "new-lock")
+	req.Header.Set("X-WOPI-OldLock", "wrong-old")
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", rr.Code)
+	}
+}
+
+// --- Token handler error paths ---
+
+func TestTokenHandler_DocumentNotFound(t *testing.T) {
+	fileSvc := newHandlerMockFileService()
+	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
+	tokenSvc := service.NewTokenService(
+		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		"secret", "https://wopi.example.com", zap.NewNop(),
+	)
+	handler := NewTokenHandler(tokenSvc, zap.NewNop())
+
+	body, _ := json.Marshal(map[string]string{"documentId": "nonexistent"})
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", bytes.NewReader(body))
+	ctx := context.WithValue(req.Context(), actorIDKey, "actor-1")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rr.Code)
+	}
+}
+
+func TestTokenHandler_NotAuthorized(t *testing.T) {
+	fileSvc := newHandlerMockFileService()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{
+		ID: docID, AuthorizationPolicyID: uuid.New().String(),
+	}
+
+	// Auth service that denies everything
+	denyAuth := &denyAuthSvc{}
+	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
+	tokenSvc := service.NewTokenService(
+		tokenRepo, fileSvc, denyAuth, &stubSessionRepo{},
+		"secret", "https://wopi.example.com", zap.NewNop(),
+	)
+	handler := NewTokenHandler(tokenSvc, zap.NewNop())
+
+	body, _ := json.Marshal(map[string]string{"documentId": docID})
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", bytes.NewReader(body))
+	ctx := context.WithValue(req.Context(), actorIDKey, "actor-1")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rr.Code)
+	}
+}
+
+type denyAuthSvc struct{}
+
+func (s *denyAuthSvc) CheckPrivilege(_ context.Context, _, _, _ string) (*port.AuthResult, error) {
+	return &port.AuthResult{Allowed: false, Reason: "denied"}, nil
+}
+
+func TestTokenHandler_InvalidBody(t *testing.T) {
+	handler := NewTokenHandler(nil, zap.NewNop())
+
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", strings.NewReader("not json"))
+	ctx := context.WithValue(req.Context(), actorIDKey, "actor-1")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
+// --- Discovery handler error path ---
+
+func TestDiscoveryHandler_Unavailable(t *testing.T) {
+	client := &mockDiscoveryClientForHandler{err: io.ErrUnexpectedEOF}
+	discSvc := service.NewDiscoveryService(client, zap.NewNop())
+	handler := NewDiscoveryHandler(discSvc, zap.NewNop())
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/wopi/discovery", nil))
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rr.Code)
+	}
+}
+
+// --- NewRouter test ---
+
+func TestNewRouter_Constructs(t *testing.T) {
+	fileSvc := newHandlerMockFileService()
+	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
+	tokenSvc := service.NewTokenService(
+		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		"secret", "https://wopi.example.com", zap.NewNop(),
+	)
+	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+
+	tokenHandler := NewTokenHandler(tokenSvc, zap.NewNop())
+	wopiHandler := NewWOPIHandler(wopiSvc, zap.NewNop())
+	discClient := &mockDiscoveryClientForHandler{data: &port.DiscoveryData{}}
+	discSvc := service.NewDiscoveryService(discClient, zap.NewNop())
+	discoveryHandler := NewDiscoveryHandler(discSvc, zap.NewNop())
+
+	// HealthHandler needs real pool/conn — just test that NewRouter doesn't panic with nil
+	// We'll skip health in this test
+	router := NewRouter(tokenSvc, tokenHandler, wopiHandler, nil, discoveryHandler)
+	if router == nil {
+		t.Error("expected non-nil router")
+	}
+}
+
 // --- RegisterWOPIRoutes test ---
 
 func TestRegisterWOPIRoutes(t *testing.T) {

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/alkem-io/wopi-service/internal/domain/model"
 )
 
 func TestCleanupService_Run(_ *testing.T) {
@@ -30,3 +32,29 @@ func TestNewCleanupService(t *testing.T) {
 		t.Errorf("interval = %v, want 15m", svc.interval)
 	}
 }
+
+func TestCleanupService_RunWithErrors(_ *testing.T) {
+	// Error-producing repos — tests that cleanup handles errors gracefully
+	tokenRepo := &errorTokenRepo{err: context.DeadlineExceeded}
+	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
+
+	svc := NewCleanupService(tokenRepo, lockRepo, zap.NewNop())
+	svc.interval = 50 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Should not panic even with errors
+	svc.Start(ctx)
+}
+
+type errorTokenRepo struct {
+	err error
+}
+
+func (e *errorTokenRepo) Create(_ context.Context, _ *model.AccessToken) error { return e.err }
+func (e *errorTokenRepo) FindByToken(_ context.Context, _ string) (*model.AccessToken, error) {
+	return nil, e.err
+}
+func (e *errorTokenRepo) DeleteByID(_ context.Context, _ string) error   { return e.err }
+func (e *errorTokenRepo) DeleteExpired(_ context.Context) (int64, error) { return 0, e.err }
