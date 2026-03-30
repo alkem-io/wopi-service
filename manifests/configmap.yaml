@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wopi-service-config
+data:
+  collabora-url: "http://collabora:9980"
+  wopi-base-url: "https://wopi.alkemio.example.com"
