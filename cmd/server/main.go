@@ -19,7 +19,6 @@ import (
 	"go.uber.org/zap"
 
 	wopihttp "github.com/alkem-io/wopi-service/internal/adapter/inbound/http"
-	"github.com/alkem-io/wopi-service/internal/adapter/outbound/alkemiodb"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/collabora"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/fileservice"
 	natsadapter "github.com/alkem-io/wopi-service/internal/adapter/outbound/nats"
@@ -52,13 +51,6 @@ func main() {
 	}
 	defer wopiPool.Close()
 
-	// Alkemio database pool (read-only)
-	alkemioPool, err := pgxpool.New(ctx, cfg.AlkemioDB.DSN())
-	if err != nil {
-		logger.Fatal("failed to connect to Alkemio database", zap.Error(err))
-	}
-	defer alkemioPool.Close()
-
 	// NATS connection
 	nc, err := nats.Connect(cfg.NATS.URL)
 	if err != nil {
@@ -70,35 +62,33 @@ func main() {
 	tokenRepo := postgres.NewTokenRepository(wopiPool)
 	lockRepo := postgres.NewLockRepository(wopiPool)
 	sessionRepo := postgres.NewSessionRepository(wopiPool)
-	docRepo := alkemiodb.NewDocumentRepository(alkemioPool)
 	authSvc := natsadapter.NewAuthService(nc)
 	fileSvc := fileservice.NewFileClient(cfg.FileService.URL)
 	discoveryCli := collabora.NewDiscoveryClient(cfg.CollaboraURL)
 
 	// Domain services
 	tokenSvc := service.NewTokenService(
-		tokenRepo, docRepo, authSvc, sessionRepo,
+		tokenRepo, fileSvc, authSvc, sessionRepo,
 		cfg.TokenSecret, cfg.BaseURL, logger,
 	)
-	wopiSvc := service.NewWOPIService(docRepo, lockRepo, fileSvc, cfg.BaseURL, logger)
+	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, cfg.BaseURL, logger)
 	discoverySvc := service.NewDiscoveryService(discoveryCli, logger)
-
-	// Inbound HTTP handlers
-	tokenHandler := wopihttp.NewTokenHandler(tokenSvc, logger)
-	wopiHandler := wopihttp.NewWOPIHandler(wopiSvc, logger)
-	healthHandler := wopihttp.NewHealthHandler(wopiPool, alkemioPool, nc, logger)
-	discoveryHandler := wopihttp.NewDiscoveryHandler(discoverySvc, logger)
 
 	// Cleanup service
 	cleanupSvc := service.NewCleanupService(tokenRepo, lockRepo, logger)
 	go cleanupSvc.Start(ctx)
+
+	// Inbound HTTP handlers
+	tokenHandler := wopihttp.NewTokenHandler(tokenSvc, logger)
+	wopiHandler := wopihttp.NewWOPIHandler(wopiSvc, logger)
+	healthHandler := wopihttp.NewHealthHandler(wopiPool, nc, logger)
+	discoveryHandler := wopihttp.NewDiscoveryHandler(discoverySvc, logger)
 
 	// Router
 	router := wopihttp.NewRouter(tokenSvc, tokenHandler, wopiHandler, healthHandler, discoveryHandler)
 
 	logger.Info("all services initialized",
 		zap.String("wopi_db", cfg.Database.Host),
-		zap.String("alkemio_db", cfg.AlkemioDB.Host),
 		zap.String("nats", cfg.NATS.URL),
 		zap.String("file_service", cfg.FileService.URL),
 	)

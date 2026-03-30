@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 	"unicode"
@@ -44,16 +45,28 @@ func (m *mockTokenRepo) DeleteByID(_ context.Context, id string) error {
 
 func (m *mockTokenRepo) DeleteExpired(_ context.Context) (int64, error) { return 0, nil }
 
-type mockDocRepo struct {
+type mockFileSvcForToken struct {
 	docs map[string]*model.Document
 }
 
-func newMockDocRepo() *mockDocRepo {
-	return &mockDocRepo{docs: make(map[string]*model.Document)}
+func newMockFileSvcForToken() *mockFileSvcForToken {
+	return &mockFileSvcForToken{docs: make(map[string]*model.Document)}
 }
 
-func (m *mockDocRepo) FindByID(_ context.Context, id string) (*model.Document, error) {
+func (m *mockFileSvcForToken) FindByID(_ context.Context, id string) (*model.Document, error) {
 	return m.docs[id], nil
+}
+
+func (m *mockFileSvcForToken) ReadFile(_ context.Context, _ string) (io.ReadCloser, error) {
+	return nil, nil
+}
+
+func (m *mockFileSvcForToken) WriteFile(_ context.Context, _ string, _ io.Reader) (*port.FileWriteResult, error) {
+	return nil, nil
+}
+
+func (m *mockFileSvcForToken) FileExists(_ context.Context, _ string) (bool, error) {
+	return false, nil
 }
 
 type mockAuthSvc struct {
@@ -91,8 +104,8 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 	docID := uuid.New().String()
 	actorID := uuid.New().String()
 
-	docRepo := newMockDocRepo()
-	docRepo.docs[docID] = &model.Document{
+	fileSvc := newMockFileSvcForToken()
+	fileSvc.docs[docID] = &model.Document{
 		ID:                    docID,
 		ExternalID:            "abc123",
 		DisplayName:           "test.docx",
@@ -106,7 +119,7 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 	authSvc.results[actorID+":update-content"] = true
 
 	svc := NewTokenService(
-		newMockTokenRepo(), docRepo, authSvc, &mockSessionRepo{},
+		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -129,8 +142,8 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 	docID := uuid.New().String()
 	actorID := uuid.New().String()
 
-	docRepo := newMockDocRepo()
-	docRepo.docs[docID] = &model.Document{
+	fileSvc := newMockFileSvcForToken()
+	fileSvc.docs[docID] = &model.Document{
 		ID:                    docID,
 		AuthorizationPolicyID: uuid.New().String(),
 	}
@@ -141,7 +154,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 
 	tokenRepo := newMockTokenRepo()
 	svc := NewTokenService(
-		tokenRepo, docRepo, authSvc, &mockSessionRepo{},
+		tokenRepo, fileSvc, authSvc, &mockSessionRepo{},
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -161,7 +174,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 
 func TestIssueToken_DocumentNotFound(t *testing.T) {
 	svc := NewTokenService(
-		newMockTokenRepo(), newMockDocRepo(), newMockAuthSvc(), &mockSessionRepo{},
+		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -173,8 +186,8 @@ func TestIssueToken_DocumentNotFound(t *testing.T) {
 
 func TestIssueToken_NotAuthorized(t *testing.T) {
 	docID := uuid.New().String()
-	docRepo := newMockDocRepo()
-	docRepo.docs[docID] = &model.Document{
+	fileSvc := newMockFileSvcForToken()
+	fileSvc.docs[docID] = &model.Document{
 		ID:                    docID,
 		AuthorizationPolicyID: uuid.New().String(),
 	}
@@ -183,7 +196,7 @@ func TestIssueToken_NotAuthorized(t *testing.T) {
 	// read not granted
 
 	svc := NewTokenService(
-		newMockTokenRepo(), docRepo, authSvc, &mockSessionRepo{},
+		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -207,7 +220,7 @@ func TestValidateToken_Valid(t *testing.T) {
 	tokenRepo.tokens["valid-token"] = token
 
 	svc := NewTokenService(
-		tokenRepo, newMockDocRepo(), newMockAuthSvc(), &mockSessionRepo{},
+		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -231,7 +244,7 @@ func TestValidateToken_Expired(t *testing.T) {
 	}
 
 	svc := NewTokenService(
-		tokenRepo, newMockDocRepo(), newMockAuthSvc(), &mockSessionRepo{},
+		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -246,7 +259,7 @@ func TestValidateToken_Expired(t *testing.T) {
 
 func TestValidateToken_NotFound(t *testing.T) {
 	svc := NewTokenService(
-		newMockTokenRepo(), newMockDocRepo(), newMockAuthSvc(), &mockSessionRepo{},
+		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 

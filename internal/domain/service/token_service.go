@@ -20,7 +20,7 @@ const defaultTokenTTL = 8 * time.Hour
 // TokenService handles WOPI access token generation, validation, and issuance.
 type TokenService struct {
 	tokenRepo   port.TokenRepository
-	docRepo     port.DocumentRepository
+	fileSvc     port.FileService
 	authSvc     port.AuthService
 	sessionRepo port.SessionRepository
 	secret      string
@@ -31,7 +31,7 @@ type TokenService struct {
 // NewTokenService creates a new TokenService.
 func NewTokenService(
 	tokenRepo port.TokenRepository,
-	docRepo port.DocumentRepository,
+	fileSvc port.FileService,
 	authSvc port.AuthService,
 	sessionRepo port.SessionRepository,
 	secret string,
@@ -40,7 +40,7 @@ func NewTokenService(
 ) *TokenService {
 	return &TokenService{
 		tokenRepo:   tokenRepo,
-		docRepo:     docRepo,
+		fileSvc:     fileSvc,
 		authSvc:     authSvc,
 		sessionRepo: sessionRepo,
 		secret:      secret,
@@ -58,7 +58,7 @@ type TokenIssuanceResult struct {
 
 // IssueToken authenticates and authorizes an actor, then creates a WOPI access token.
 func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID string) (*TokenIssuanceResult, error) {
-	doc, err := s.docRepo.FindByID(ctx, documentID)
+	doc, err := s.fileSvc.FindByID(ctx, documentID)
 	if err != nil {
 		return nil, fmt.Errorf("lookup document: %w", err)
 	}

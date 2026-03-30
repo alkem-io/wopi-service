@@ -13,19 +13,17 @@ import (
 
 // HealthHandler handles the /health endpoint.
 type HealthHandler struct {
-	wopiPool    *pgxpool.Pool
-	alkemioPool *pgxpool.Pool
-	natsConn    *nats.Conn
-	logger      *zap.Logger
+	wopiPool *pgxpool.Pool
+	natsConn *nats.Conn
+	logger   *zap.Logger
 }
 
 // NewHealthHandler creates a new HealthHandler.
-func NewHealthHandler(wopiPool, alkemioPool *pgxpool.Pool, natsConn *nats.Conn, logger *zap.Logger) *HealthHandler {
+func NewHealthHandler(wopiPool *pgxpool.Pool, natsConn *nats.Conn, logger *zap.Logger) *HealthHandler {
 	return &HealthHandler{
-		wopiPool:    wopiPool,
-		alkemioPool: alkemioPool,
-		natsConn:    natsConn,
-		logger:      logger,
+		wopiPool: wopiPool,
+		natsConn: natsConn,
+		logger:   logger,
 	}
 }
 
@@ -41,14 +39,7 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	if err := h.wopiPool.Ping(ctx); err != nil {
 		h.logger.Warn("wopi db health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(healthResponse{Status: "wopi_db_unavailable"})
-		return
-	}
-
-	if err := h.alkemioPool.Ping(ctx); err != nil {
-		h.logger.Warn("alkemio db health check failed", zap.Error(err))
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(healthResponse{Status: "alkemio_db_unavailable"})
+		_ = json.NewEncoder(w).Encode(healthResponse{Status: "db_unavailable"})
 		return
 	}
 

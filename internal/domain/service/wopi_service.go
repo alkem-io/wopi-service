@@ -15,25 +15,22 @@ import (
 
 // WOPIService implements the core WOPI use cases.
 type WOPIService struct {
-	docRepo  port.DocumentRepository
-	lockRepo port.LockRepository
 	fileSvc  port.FileService
+	lockRepo port.LockRepository
 	baseURL  string
 	logger   *zap.Logger
 }
 
 // NewWOPIService creates a new WOPIService.
 func NewWOPIService(
-	docRepo port.DocumentRepository,
-	lockRepo port.LockRepository,
 	fileSvc port.FileService,
+	lockRepo port.LockRepository,
 	baseURL string,
 	logger *zap.Logger,
 ) *WOPIService {
 	return &WOPIService{
-		docRepo:  docRepo,
-		lockRepo: lockRepo,
 		fileSvc:  fileSvc,
+		lockRepo: lockRepo,
 		baseURL:  baseURL,
 		logger:   logger,
 	}
@@ -41,7 +38,7 @@ func NewWOPIService(
 
 // CheckFileInfo returns WOPI file metadata for a document.
 func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToken) (*model.FileInfo, error) {
-	doc, err := s.docRepo.FindByID(ctx, token.FileID)
+	doc, err := s.fileSvc.FindByID(ctx, token.FileID)
 	if err != nil {
 		return nil, fmt.Errorf("lookup document: %w", err)
 	}
@@ -64,17 +61,9 @@ func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToke
 	}, nil
 }
 
-// GetFile retrieves file content from file-service-go.
+// GetFile retrieves file content from file-service-go by document ID.
 func (s *WOPIService) GetFile(ctx context.Context, token *model.AccessToken) (io.ReadCloser, error) {
-	doc, err := s.docRepo.FindByID(ctx, token.FileID)
-	if err != nil {
-		return nil, fmt.Errorf("lookup document: %w", err)
-	}
-	if doc == nil {
-		return nil, ErrDocumentNotFound
-	}
-
-	content, err := s.fileSvc.ReadFile(ctx, doc.ExternalID)
+	content, err := s.fileSvc.ReadFile(ctx, token.FileID)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}

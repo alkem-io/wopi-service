@@ -13,9 +13,6 @@ type Config struct {
 	// Own database (WOPI service state: tokens, locks, sessions)
 	Database DatabaseConfig
 
-	// Alkemio database (read-only: document metadata)
-	AlkemioDB DatabaseConfig
-
 	// NATS (authorization-evaluation-service)
 	NATS NATSConfig
 
@@ -67,11 +64,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid WOPI_DATABASE_TIMEOUT: %w", err)
 	}
 
-	alkemioDBTimeout, err := parseDuration(getEnv("ALKEMIO_DATABASE_TIMEOUT", "5s"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid ALKEMIO_DATABASE_TIMEOUT: %w", err)
-	}
-
 	cfg := &Config{
 		Database: DatabaseConfig{
 			Host:     getEnv("WOPI_DATABASE_HOST", "localhost"),
@@ -80,14 +72,6 @@ func Load() (*Config, error) {
 			Password: getEnv("WOPI_DATABASE_PASSWORD", "postgres"),
 			Name:     getEnv("WOPI_DATABASE_NAME", "wopi"),
 			Timeout:  dbTimeout,
-		},
-		AlkemioDB: DatabaseConfig{
-			Host:     getEnv("ALKEMIO_DATABASE_HOST", "localhost"),
-			Port:     getEnv("ALKEMIO_DATABASE_PORT", "5432"),
-			Username: getEnv("ALKEMIO_DATABASE_USERNAME", "readonly"),
-			Password: getEnv("ALKEMIO_DATABASE_PASSWORD", "readonly"),
-			Name:     getEnv("ALKEMIO_DATABASE_NAME", "alkemio"),
-			Timeout:  alkemioDBTimeout,
 		},
 		NATS: NATSConfig{
 			URL: getEnv("NATS_URL", "nats://localhost:4222"),
