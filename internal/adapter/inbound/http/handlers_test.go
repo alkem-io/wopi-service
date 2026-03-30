@@ -366,7 +366,7 @@ func TestTokenHandler_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 200, body: %s", rr.Code, rr.Body.String())
 	}
 
-	var resp tokenResponse
+	var resp TokenIssuanceResponse
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}

@@ -241,6 +241,10 @@ VII–XV):
    online
 9. Do not create documentation files unless explicitly requested
 10. Do not assume — ask or search when something is unclear
+11. Do not use `map[string]any` for HTTP response bodies — use named
+    structs with JSON tags. This enables OpenAPI spec generation and
+    provides compile-time type safety. Each response type MUST have
+    a `Render(w http.ResponseWriter)` method.
 
 ## Technology Stack Constraints
 

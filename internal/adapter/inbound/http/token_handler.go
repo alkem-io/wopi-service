@@ -25,12 +25,6 @@ type tokenRequest struct {
 	DocumentID string `json:"documentId"`
 }
 
-type tokenResponse struct {
-	AccessToken string `json:"accessToken"`
-	TTL         int64  `json:"accessTokenTTL"`
-	WOPISrc     string `json:"wopiSrc"`
-}
-
 // ServeHTTP handles POST /wopi/token.
 func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -68,10 +62,9 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(tokenResponse{
+	TokenIssuanceResponse{
 		AccessToken: result.AccessToken,
 		TTL:         result.TTL,
 		WOPISrc:     result.WOPISrc,
-	})
+	}.Render(w)
 }

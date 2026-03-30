@@ -1,0 +1,151 @@
+openapi: 3.1.1
+info:
+  title: Alkemio WOPI Service
+  description: |
+    WOPI protocol host service for Collabora Online integration into
+    the Alkemio platform. Provides token issuance, document editing
+    (CheckFileInfo, GetFile, PutFile), locking, and WOPI discovery.
+  version: 1.0.0
+  contact:
+    name: Alkemio Foundation
+    url: https://alkem.io
+    email: info@alkem.io
+  license:
+    name: EUPL-1.2
+    url: https://opensource.org/licenses/EUPL-1.2
+paths:
+  /wopi/files/{fileID}:
+    get:
+      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.WOPIHandler.CheckFileInfo
+      parameters:
+        - name: fileID
+          in: path
+          required: true
+          schema:
+            type: string
+          x-warning: This parameter is present in the path but not found in the code.
+      responses:
+        default:
+          description: Default response (no response found)
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.WOPIHandler.FileOperation
+      parameters:
+        - name: fileID
+          in: path
+          required: true
+          schema:
+            type: string
+          x-warning: This parameter is present in the path but not found in the code.
+      responses:
+        default:
+          description: Default response (no response found)
+          content:
+            application/json:
+              schema:
+                type: object
+  /wopi/files/{fileID}/contents:
+    get:
+      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.WOPIHandler.GetFile
+      parameters:
+        - name: fileID
+          in: path
+          required: true
+          schema:
+            type: string
+          x-warning: This parameter is present in the path but not found in the code.
+      responses:
+        default:
+          description: Default response (no response found)
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.WOPIHandler.PutFileContents
+      parameters:
+        - name: fileID
+          in: path
+          required: true
+          schema:
+            type: string
+          x-warning: This parameter is present in the path but not found in the code.
+      responses:
+        default:
+          description: Default response (no response found)
+          content:
+            application/json:
+              schema:
+                type: object
+  /wopi/token/:
+    post:
+      tags:
+        - /wopi/token
+      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.TokenHandler.ServeHTTP
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/github.com_alkem-io_wopi-service_internal_adapter_inbound_http.tokenRequest'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/github.com_alkem-io_wopi-service_internal_adapter_inbound_http.TokenIssuanceResponse'
+        "400":
+          description: Bad Request
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+        "401":
+          description: Unauthorized
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+        "403":
+          description: Forbidden
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+        "404":
+          description: Not Found
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+        "405":
+          description: Method Not Allowed
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+        "500":
+          description: Internal Server Error
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+components:
+  schemas:
+    github.com_alkem-io_wopi-service_internal_adapter_inbound_http.TokenIssuanceResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        accessTokenTTL:
+          type: integer
+        wopiSrc:
+          type: string
+    github.com_alkem-io_wopi-service_internal_adapter_inbound_http.tokenRequest:
+      type: object
+      properties:
+        documentId:
+          type: string

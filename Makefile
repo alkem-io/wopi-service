@@ -1,4 +1,4 @@
-.PHONY: build run test lint generate migrate docker-build docker-up docker-down clean
+.PHONY: build run test lint generate openapi migrate docker-build docker-up docker-down clean
 
 # Binary
 BINARY := wopi-service
@@ -15,13 +15,16 @@ run: build
 generate:
 	sqlc generate
 
+openapi:
+	apispec --dir . --output openapi.yaml --config apispec.yaml --skip-cgo
+
 # Database
 migrate:
 	go run $(CMD) migrate
 
 # Quality
 test:
-	go test ./... -count=1
+	go test ./... -race -count=1
 
 lint:
 	golangci-lint run ./...
