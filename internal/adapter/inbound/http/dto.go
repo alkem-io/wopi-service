@@ -16,7 +16,7 @@ type TokenIssuanceResponse struct {
 func (r TokenIssuanceResponse) Render(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(r)
+	_ = json.NewEncoder(w).Encode(r) //nolint:gosec // G117: AccessToken is intentionally returned to client
 }
 
 // ErrorResponse is the standard error response body.

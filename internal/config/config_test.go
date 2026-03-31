@@ -15,7 +15,7 @@ func TestDatabaseConfig_DSN(t *testing.T) {
 		Timeout:  10 * time.Second,
 	}
 	got := cfg.DSN()
-	want := "postgres://user:pass@dbhost:5433/testdb?sslmode=disable&connect_timeout=10"
+	want := "postgres://user:pass@dbhost:5433/testdb?sslmode=disable&connect_timeout=10" //nolint:gosec // test fixture
 	if got != want {
 		t.Errorf("DSN() = %q, want %q", got, want)
 	}
