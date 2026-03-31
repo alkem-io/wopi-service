@@ -73,7 +73,7 @@ func (m *mockLockRepo) FindByFileID(_ context.Context, fileID string) (*model.Lo
 	return m.locks[fileID], nil
 }
 
-func (m *mockLockRepo) UpdateLockID(_ context.Context, fileID, newLockID string, lock model.Lock) error {
+func (m *mockLockRepo) UpdateLockID(_ context.Context, fileID, _, newLockID string, lock model.Lock) error {
 	if existing, ok := m.locks[fileID]; ok {
 		existing.LockID = newLockID
 		existing.ExpiresAt = lock.ExpiresAt
@@ -81,14 +81,14 @@ func (m *mockLockRepo) UpdateLockID(_ context.Context, fileID, newLockID string,
 	return nil
 }
 
-func (m *mockLockRepo) RefreshExpiry(_ context.Context, fileID string, lock *model.Lock) error {
+func (m *mockLockRepo) RefreshExpiry(_ context.Context, fileID, _ string, lock *model.Lock) error {
 	if existing, ok := m.locks[fileID]; ok {
 		existing.ExpiresAt = lock.ExpiresAt
 	}
 	return nil
 }
 
-func (m *mockLockRepo) DeleteByFileID(_ context.Context, fileID string) error {
+func (m *mockLockRepo) DeleteByFileID(_ context.Context, fileID, _ string) error {
 	delete(m.locks, fileID)
 	return nil
 }
@@ -226,8 +226,9 @@ func TestPutFile_LockMismatch(t *testing.T) {
 	token := makeToken(docID, "read,write")
 
 	_, err := svc.PutFile(context.Background(), token, "lock-B", strings.NewReader("content"))
-	if !errors.Is(err, ErrLockMismatch) {
-		t.Errorf("expected ErrLockMismatch, got %v", err)
+	var conflictErr *LockConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Errorf("expected LockConflictError, got %v", err)
 	}
 }
 
@@ -392,12 +393,14 @@ func (e *errorLockRepo) Create(_ context.Context, _ *model.Lock) error { return 
 func (e *errorLockRepo) FindByFileID(_ context.Context, _ string) (*model.Lock, error) {
 	return nil, e.err
 }
-func (e *errorLockRepo) UpdateLockID(_ context.Context, _, _ string, _ model.Lock) error {
+func (e *errorLockRepo) UpdateLockID(_ context.Context, _, _, _ string, _ model.Lock) error {
 	return e.err
 }
-func (e *errorLockRepo) RefreshExpiry(_ context.Context, _ string, _ *model.Lock) error { return e.err }
-func (e *errorLockRepo) DeleteByFileID(_ context.Context, _ string) error               { return e.err }
-func (e *errorLockRepo) DeleteExpired(_ context.Context) (int64, error)                 { return 0, e.err }
+func (e *errorLockRepo) RefreshExpiry(_ context.Context, _, _ string, _ *model.Lock) error {
+	return e.err
+}
+func (e *errorLockRepo) DeleteByFileID(_ context.Context, _, _ string) error { return e.err }
+func (e *errorLockRepo) DeleteExpired(_ context.Context) (int64, error)      { return 0, e.err }
 
 // --- Lock operation tests (US2) ---
 

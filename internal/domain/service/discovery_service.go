@@ -48,8 +48,8 @@ func (s *DiscoveryService) GetDiscovery(ctx context.Context) (*port.DiscoveryDat
 // InvalidateAndRefresh clears the cache and fetches fresh discovery data.
 // Called when proof key validation fails (keys may have rotated).
 func (s *DiscoveryService) InvalidateAndRefresh(ctx context.Context) (*port.DiscoveryData, error) {
+	// Mark stale but keep the snapshot for fallback if refresh fails.
 	s.mu.Lock()
-	s.cached = nil
 	s.cachedAt = time.Time{}
 	s.mu.Unlock()
 

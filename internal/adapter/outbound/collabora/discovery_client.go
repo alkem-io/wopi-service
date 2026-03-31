@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
@@ -21,7 +22,7 @@ type DiscoveryClient struct {
 func NewDiscoveryClient(collaboraURL string) *DiscoveryClient {
 	return &DiscoveryClient{
 		collaboraURL: collaboraURL,
-		httpClient:   &http.Client{},
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
 	}
 }
 

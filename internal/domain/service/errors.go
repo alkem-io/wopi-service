@@ -6,7 +6,6 @@ import "errors"
 var (
 	ErrDocumentNotFound = errors.New("document not found")
 	ErrNotAuthorized    = errors.New("not authorized")
-	ErrLockMismatch     = errors.New("lock mismatch")
 )
 
 // LockConflictError is returned when a lock operation conflicts with an existing lock.

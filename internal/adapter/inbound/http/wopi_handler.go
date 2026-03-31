@@ -111,13 +111,13 @@ func (h *WOPIHandler) putFile(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.wopiSvc.PutFile(r.Context(), token, lockID, r.Body)
 	if err != nil {
+		var conflictErr *service.LockConflictError
 		switch {
 		case errors.Is(err, service.ErrNotAuthorized):
 			http.Error(w, `{"error":"not authorized"}`, http.StatusForbidden)
-		case errors.Is(err, service.ErrLockMismatch):
-			// Return current lock in header
-			w.Header().Set("X-WOPI-Lock", lockID)
-			http.Error(w, `{"error":"lock mismatch"}`, http.StatusConflict)
+		case errors.As(err, &conflictErr):
+			w.Header().Set("X-WOPI-Lock", conflictErr.ExistingLockID)
+			http.Error(w, `{"error":"lock conflict"}`, http.StatusConflict)
 		case errors.Is(err, service.ErrDocumentNotFound):
 			http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
 		default:

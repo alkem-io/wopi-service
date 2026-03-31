@@ -23,19 +23,27 @@ func (q *Queries) DeleteExpiredLocks(ctx context.Context) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
-const deleteLockByFileID = `-- name: DeleteLockByFileID :exec
-DELETE FROM locks WHERE file_id = $1
+const deleteLockByFileID = `-- name: DeleteLockByFileID :execrows
+DELETE FROM locks WHERE file_id = $1 AND lock_id = $2
 `
 
-func (q *Queries) DeleteLockByFileID(ctx context.Context, fileID string) error {
-	_, err := q.db.Exec(ctx, deleteLockByFileID, fileID)
-	return err
+type DeleteLockByFileIDParams struct {
+	FileID string `json:"file_id"`
+	LockID string `json:"lock_id"`
+}
+
+func (q *Queries) DeleteLockByFileID(ctx context.Context, arg DeleteLockByFileIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteLockByFileID, arg.FileID, arg.LockID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const findLockByFileID = `-- name: FindLockByFileID :one
 SELECT id, file_id, lock_id, expires_at, created_at
 FROM locks
-WHERE file_id = $1
+WHERE file_id = $1 AND expires_at > now()
 `
 
 func (q *Queries) FindLockByFileID(ctx context.Context, fileID string) (Lock, error) {
@@ -51,33 +59,48 @@ func (q *Queries) FindLockByFileID(ctx context.Context, fileID string) (Lock, er
 	return i, err
 }
 
-const updateLockExpiry = `-- name: UpdateLockExpiry :exec
-UPDATE locks SET expires_at = $2 WHERE file_id = $1
+const updateLockExpiry = `-- name: UpdateLockExpiry :execrows
+UPDATE locks SET expires_at = $3
+WHERE file_id = $1 AND lock_id = $2 AND expires_at > now()
 `
 
 type UpdateLockExpiryParams struct {
-	FileID    string             `json:"file_id"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-}
-
-func (q *Queries) UpdateLockExpiry(ctx context.Context, arg UpdateLockExpiryParams) error {
-	_, err := q.db.Exec(ctx, updateLockExpiry, arg.FileID, arg.ExpiresAt)
-	return err
-}
-
-const updateLockIDAndExpiry = `-- name: UpdateLockIDAndExpiry :exec
-UPDATE locks SET lock_id = $2, expires_at = $3 WHERE file_id = $1
-`
-
-type UpdateLockIDAndExpiryParams struct {
 	FileID    string             `json:"file_id"`
 	LockID    string             `json:"lock_id"`
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
-func (q *Queries) UpdateLockIDAndExpiry(ctx context.Context, arg UpdateLockIDAndExpiryParams) error {
-	_, err := q.db.Exec(ctx, updateLockIDAndExpiry, arg.FileID, arg.LockID, arg.ExpiresAt)
-	return err
+func (q *Queries) UpdateLockExpiry(ctx context.Context, arg UpdateLockExpiryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateLockExpiry, arg.FileID, arg.LockID, arg.ExpiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateLockIDAndExpiry = `-- name: UpdateLockIDAndExpiry :execrows
+UPDATE locks SET lock_id = $3, expires_at = $4
+WHERE file_id = $1 AND lock_id = $2 AND expires_at > now()
+`
+
+type UpdateLockIDAndExpiryParams struct {
+	FileID    string             `json:"file_id"`
+	LockID    string             `json:"lock_id"`
+	LockID_2  string             `json:"lock_id_2"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) UpdateLockIDAndExpiry(ctx context.Context, arg UpdateLockIDAndExpiryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateLockIDAndExpiry,
+		arg.FileID,
+		arg.LockID,
+		arg.LockID_2,
+		arg.ExpiresAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertLock = `-- name: UpsertLock :exec

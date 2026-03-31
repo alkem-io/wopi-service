@@ -60,6 +60,11 @@ jobs:
             --docker-password=${{ secrets.REGISTRY_PASSWORD }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Attach image pull secret to deployment
+        run: |
+          kubectl patch deployment alkemio-wopi-service-deployment -p \
+            '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"wopi-service-registry"}]}}}}'
+
       - name: Update deployment image
         run: |
           kubectl set image deployment/alkemio-wopi-service-deployment \

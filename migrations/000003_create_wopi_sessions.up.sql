@@ -6,4 +6,5 @@ CREATE TABLE wopi_sessions (
     created_at TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_wopi_sessions_file_id ON wopi_sessions (file_id);
+CREATE INDEX idx_wopi_sessions_file_id  ON wopi_sessions (file_id);
+CREATE INDEX idx_wopi_sessions_token_id ON wopi_sessions (token_id);

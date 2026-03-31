@@ -3,12 +3,16 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres/generated"
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 )
+
+// ErrStaleLock is returned when a CAS operation finds zero affected rows.
+var ErrStaleLock = errors.New("stale lock: concurrent modification detected")
 
 // LockRepository implements port.LockRepository using PostgreSQL.
 type LockRepository struct {
@@ -22,6 +26,9 @@ func NewLockRepository(db generated.DBTX) *LockRepository {
 
 // Create inserts or replaces a lock for a file.
 func (r *LockRepository) Create(ctx context.Context, lock *model.Lock) error {
+	if lock == nil {
+		return fmt.Errorf("lock is nil")
+	}
 	q := generated.New(r.db)
 	return q.UpsertLock(ctx, generated.UpsertLockParams{
 		ID:        uuidToPgtype(lock.ID),
@@ -32,7 +39,7 @@ func (r *LockRepository) Create(ctx context.Context, lock *model.Lock) error {
 	})
 }
 
-// FindByFileID retrieves the active lock for a file. Returns nil if none.
+// FindByFileID retrieves the active (non-expired) lock for a file.
 func (r *LockRepository) FindByFileID(ctx context.Context, fileID string) (*model.Lock, error) {
 	q := generated.New(r.db)
 	row, err := q.FindLockByFileID(ctx, fileID)
@@ -51,29 +58,58 @@ func (r *LockRepository) FindByFileID(ctx context.Context, fileID string) (*mode
 	}, nil
 }
 
-// UpdateLockID atomically replaces the lock ID and expiry for a file.
-func (r *LockRepository) UpdateLockID(ctx context.Context, fileID, newLockID string, lock model.Lock) error {
+// UpdateLockID atomically replaces the lock ID and expiry (CAS on lock_id).
+func (r *LockRepository) UpdateLockID(ctx context.Context, fileID, currentLockID, newLockID string, newExpiry model.Lock) error {
 	q := generated.New(r.db)
-	return q.UpdateLockIDAndExpiry(ctx, generated.UpdateLockIDAndExpiryParams{
+	rows, err := q.UpdateLockIDAndExpiry(ctx, generated.UpdateLockIDAndExpiryParams{
 		FileID:    fileID,
-		LockID:    newLockID,
-		ExpiresAt: timestamptzFromTime(lock.ExpiresAt),
+		LockID:    currentLockID,
+		LockID_2:  newLockID,
+		ExpiresAt: timestamptzFromTime(newExpiry.ExpiresAt),
 	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrStaleLock
+	}
+	return nil
 }
 
-// RefreshExpiry extends the lock expiry for a file.
-func (r *LockRepository) RefreshExpiry(ctx context.Context, fileID string, lock *model.Lock) error {
+// RefreshExpiry extends the lock expiry (CAS on lock_id).
+func (r *LockRepository) RefreshExpiry(ctx context.Context, fileID, lockID string, lock *model.Lock) error {
+	if lock == nil {
+		return fmt.Errorf("lock is nil")
+	}
 	q := generated.New(r.db)
-	return q.UpdateLockExpiry(ctx, generated.UpdateLockExpiryParams{
+	rows, err := q.UpdateLockExpiry(ctx, generated.UpdateLockExpiryParams{
 		FileID:    fileID,
+		LockID:    lockID,
 		ExpiresAt: timestamptzFromTime(lock.ExpiresAt),
 	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrStaleLock
+	}
+	return nil
 }
 
-// DeleteByFileID removes the lock for a file.
-func (r *LockRepository) DeleteByFileID(ctx context.Context, fileID string) error {
+// DeleteByFileID removes the lock for a file (CAS on lock_id).
+func (r *LockRepository) DeleteByFileID(ctx context.Context, fileID, lockID string) error {
 	q := generated.New(r.db)
-	return q.DeleteLockByFileID(ctx, fileID)
+	rows, err := q.DeleteLockByFileID(ctx, generated.DeleteLockByFileIDParams{
+		FileID: fileID,
+		LockID: lockID,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrStaleLock
+	}
+	return nil
 }
 
 // DeleteExpired removes all expired locks and returns the count deleted.

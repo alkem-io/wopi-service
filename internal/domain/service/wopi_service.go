@@ -87,9 +87,9 @@ func (s *WOPIService) PutFile(ctx context.Context, token *model.AccessToken, loc
 	if err != nil {
 		return nil, fmt.Errorf("check lock: %w", err)
 	}
-	if existingLock != nil && !existingLock.IsExpired() {
+	if existingLock != nil {
 		if lockID == "" || existingLock.LockID != lockID {
-			return nil, ErrLockMismatch
+			return nil, &LockConflictError{ExistingLockID: existingLock.LockID}
 		}
 	}
 
@@ -111,12 +111,10 @@ func (s *WOPIService) Lock(ctx context.Context, fileID, lockID string) error {
 		return fmt.Errorf("check existing lock: %w", err)
 	}
 
-	if existing != nil && !existing.IsExpired() {
+	if existing != nil {
 		if existing.LockID == lockID {
-			// Same lock ID — treat as RefreshLock
-			newExpiry := time.Now().Add(model.DefaultLockDuration)
-			existing.ExpiresAt = newExpiry
-			return s.lockRepo.RefreshExpiry(ctx, fileID, existing)
+			existing.ExpiresAt = time.Now().Add(model.DefaultLockDuration)
+			return s.lockRepo.RefreshExpiry(ctx, fileID, lockID, existing)
 		}
 		return &LockConflictError{ExistingLockID: existing.LockID}
 	}
@@ -140,14 +138,14 @@ func (s *WOPIService) Unlock(ctx context.Context, fileID, lockID string) error {
 		return fmt.Errorf("check existing lock: %w", err)
 	}
 
-	if existing == nil || existing.IsExpired() {
+	if existing == nil {
 		return &LockConflictError{ExistingLockID: ""}
 	}
 	if existing.LockID != lockID {
 		return &LockConflictError{ExistingLockID: existing.LockID}
 	}
 
-	return s.lockRepo.DeleteByFileID(ctx, fileID)
+	return s.lockRepo.DeleteByFileID(ctx, fileID, lockID)
 }
 
 // RefreshLock extends the expiry of an existing lock.
@@ -157,7 +155,7 @@ func (s *WOPIService) RefreshLock(ctx context.Context, fileID, lockID string) er
 		return fmt.Errorf("check existing lock: %w", err)
 	}
 
-	if existing == nil || existing.IsExpired() {
+	if existing == nil {
 		return &LockConflictError{ExistingLockID: ""}
 	}
 	if existing.LockID != lockID {
@@ -165,7 +163,7 @@ func (s *WOPIService) RefreshLock(ctx context.Context, fileID, lockID string) er
 	}
 
 	existing.ExpiresAt = time.Now().Add(model.DefaultLockDuration)
-	return s.lockRepo.RefreshExpiry(ctx, fileID, existing)
+	return s.lockRepo.RefreshExpiry(ctx, fileID, lockID, existing)
 }
 
 // UnlockAndRelock atomically replaces one lock with another.
@@ -175,7 +173,7 @@ func (s *WOPIService) UnlockAndRelock(ctx context.Context, fileID, newLockID, ol
 		return fmt.Errorf("check existing lock: %w", err)
 	}
 
-	if existing == nil || existing.IsExpired() {
+	if existing == nil {
 		return &LockConflictError{ExistingLockID: ""}
 	}
 	if existing.LockID != oldLockID {
@@ -183,5 +181,5 @@ func (s *WOPIService) UnlockAndRelock(ctx context.Context, fileID, newLockID, ol
 	}
 
 	newLock := model.Lock{ExpiresAt: time.Now().Add(model.DefaultLockDuration)}
-	return s.lockRepo.UpdateLockID(ctx, fileID, newLockID, newLock)
+	return s.lockRepo.UpdateLockID(ctx, fileID, oldLockID, newLockID, newLock)
 }

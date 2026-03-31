@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/port"
@@ -24,7 +25,7 @@ type FileClient struct {
 func NewFileClient(baseURL string) *FileClient {
 	return &FileClient{
 		baseURL:    baseURL,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 

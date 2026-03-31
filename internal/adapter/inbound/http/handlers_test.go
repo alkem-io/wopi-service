@@ -74,20 +74,20 @@ func (m *handlerMockLockRepo) Create(_ context.Context, lock *model.Lock) error 
 func (m *handlerMockLockRepo) FindByFileID(_ context.Context, fileID string) (*model.Lock, error) {
 	return m.locks[fileID], nil
 }
-func (m *handlerMockLockRepo) UpdateLockID(_ context.Context, fileID, newLockID string, lock model.Lock) error {
+func (m *handlerMockLockRepo) UpdateLockID(_ context.Context, fileID, _, newLockID string, lock model.Lock) error {
 	if existing, ok := m.locks[fileID]; ok {
 		existing.LockID = newLockID
 		existing.ExpiresAt = lock.ExpiresAt
 	}
 	return nil
 }
-func (m *handlerMockLockRepo) RefreshExpiry(_ context.Context, fileID string, lock *model.Lock) error {
+func (m *handlerMockLockRepo) RefreshExpiry(_ context.Context, fileID, _ string, lock *model.Lock) error {
 	if existing, ok := m.locks[fileID]; ok {
 		existing.ExpiresAt = lock.ExpiresAt
 	}
 	return nil
 }
-func (m *handlerMockLockRepo) DeleteByFileID(_ context.Context, fileID string) error {
+func (m *handlerMockLockRepo) DeleteByFileID(_ context.Context, fileID, _ string) error {
 	delete(m.locks, fileID)
 	return nil
 }

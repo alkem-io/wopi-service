@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -42,8 +43,8 @@ type DatabaseConfig struct {
 func (c DatabaseConfig) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable&connect_timeout=%d",
-		c.Username, c.Password, c.Host, c.Port, c.Name,
-		int(c.Timeout.Seconds()),
+		url.QueryEscape(c.Username), url.QueryEscape(c.Password),
+		c.Host, c.Port, c.Name, int(c.Timeout.Seconds()),
 	)
 }
 

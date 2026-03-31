@@ -117,10 +117,10 @@ func TestLockRepository_RefreshExpiry(t *testing.T) {
 	lock := &model.Lock{ExpiresAt: time.Now().Add(30 * time.Minute)}
 
 	mock.ExpectExec("UPDATE locks SET expires_at").
-		WithArgs("file-1", pgxmock.AnyArg()).
+		WithArgs("file-1", "lock-1", pgxmock.AnyArg()).
 		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
 
-	err = repo.RefreshExpiry(context.Background(), "file-1", lock)
+	err = repo.RefreshExpiry(context.Background(), "file-1", "lock-1", lock)
 	if err != nil {
 		t.Fatalf("RefreshExpiry error: %v", err)
 	}
@@ -140,10 +140,10 @@ func TestLockRepository_UpdateLockID(t *testing.T) {
 	lock := model.Lock{ExpiresAt: time.Now().Add(30 * time.Minute)}
 
 	mock.ExpectExec("UPDATE locks SET lock_id").
-		WithArgs("file-1", "new-lock", pgxmock.AnyArg()).
+		WithArgs("file-1", "old-lock", "new-lock", pgxmock.AnyArg()).
 		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
 
-	err = repo.UpdateLockID(context.Background(), "file-1", "new-lock", lock)
+	err = repo.UpdateLockID(context.Background(), "file-1", "old-lock", "new-lock", lock)
 	if err != nil {
 		t.Fatalf("UpdateLockID error: %v", err)
 	}
@@ -162,10 +162,10 @@ func TestLockRepository_DeleteByFileID(t *testing.T) {
 	repo := NewLockRepository(mock)
 
 	mock.ExpectExec("DELETE FROM locks WHERE file_id").
-		WithArgs("file-1").
+		WithArgs("file-1", "lock-1").
 		WillReturnResult(pgxmock.NewResult("DELETE", 1))
 
-	err = repo.DeleteByFileID(context.Background(), "file-1")
+	err = repo.DeleteByFileID(context.Background(), "file-1", "lock-1")
 	if err != nil {
 		t.Fatalf("DeleteByFileID error: %v", err)
 	}
