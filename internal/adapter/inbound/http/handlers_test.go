@@ -47,7 +47,10 @@ func (m *handlerMockFileService) ReadFile(_ context.Context, id string) (io.Read
 }
 
 func (m *handlerMockFileService) WriteFile(_ context.Context, id string, content io.Reader) (*port.FileWriteResult, error) {
-	data, _ := io.ReadAll(content)
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return nil, err
+	}
 	m.files[id] = data
 	return &port.FileWriteResult{ExternalID: "new-hash", Size: int64(len(data))}, nil
 }

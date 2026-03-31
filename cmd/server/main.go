@@ -178,6 +178,16 @@ func runMigrations(dsn string, logger *zap.Logger) error {
 		return fmt.Errorf("create migrate instance: %w", err)
 	}
 
+	defer func() {
+		srcErr, dbErr := m.Close()
+		if srcErr != nil {
+			logger.Warn("migrate source close error", zap.Error(srcErr))
+		}
+		if dbErr != nil {
+			logger.Warn("migrate db close error", zap.Error(dbErr))
+		}
+	}()
+
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("run migrations: %w", err)
 	}

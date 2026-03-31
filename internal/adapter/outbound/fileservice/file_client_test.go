@@ -73,7 +73,10 @@ func TestFileClient_ReadFile_Success(t *testing.T) {
 	}
 	defer func() { _ = reader.Close() }()
 
-	data, _ := io.ReadAll(reader)
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read content: %v", err)
+	}
 	if string(data) != "binary content" {
 		t.Errorf("content = %q", string(data))
 	}

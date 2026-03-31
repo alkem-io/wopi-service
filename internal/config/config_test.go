@@ -22,7 +22,13 @@ func TestDatabaseConfig_DSN(t *testing.T) {
 }
 
 func TestLoad_Defaults(t *testing.T) {
-	// Set required env var
+	// Isolate from ambient env vars that could override defaults
+	for _, key := range []string{
+		"WOPI_DATABASE_HOST", "WOPI_DATABASE_PORT", "WOPI_DATABASE_NAME",
+		"NATS_URL", "FILE_SERVICE_URL", "WOPI_SERVER_PORT",
+	} {
+		t.Setenv(key, "")
+	}
 	t.Setenv("WOPI_TOKEN_SECRET", "test-secret")
 
 	cfg, err := Load()

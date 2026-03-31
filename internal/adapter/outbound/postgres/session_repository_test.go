@@ -116,4 +116,7 @@ func TestSessionRepository_DeleteByTokenID_InvalidUUID(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid UUID")
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB call on invalid UUID: %v", err)
+	}
 }

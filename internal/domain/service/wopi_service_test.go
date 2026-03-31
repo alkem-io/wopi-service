@@ -43,7 +43,10 @@ func (m *mockFileService) ReadFile(_ context.Context, documentID string) (io.Rea
 }
 
 func (m *mockFileService) WriteFile(_ context.Context, documentID string, content io.Reader) (*port.FileWriteResult, error) {
-	data, _ := io.ReadAll(content)
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return nil, err
+	}
 	extID := "hash-" + documentID
 	m.files[documentID] = data
 	return &port.FileWriteResult{ExternalID: extID, Size: int64(len(data))}, nil

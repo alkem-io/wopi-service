@@ -39,7 +39,9 @@ func TestJWTMiddleware_ValidToken(t *testing.T) {
 }
 
 func TestJWTMiddleware_MissingHeader(t *testing.T) {
+	called := false
 	handler := JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -50,10 +52,15 @@ func TestJWTMiddleware_MissingHeader(t *testing.T) {
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rr.Code)
 	}
+	if called {
+		t.Error("downstream handler should not be called on auth failure")
+	}
 }
 
 func TestJWTMiddleware_InvalidFormat(t *testing.T) {
+	called := false
 	handler := JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -65,12 +72,17 @@ func TestJWTMiddleware_InvalidFormat(t *testing.T) {
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rr.Code)
 	}
+	if called {
+		t.Error("downstream handler should not be called on auth failure")
+	}
 }
 
 func TestJWTMiddleware_MissingActorID(t *testing.T) {
 	token := makeJWT(map[string]string{"sub": "some-subject"})
 
+	called := false
 	handler := JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -81,6 +93,9 @@ func TestJWTMiddleware_MissingActorID(t *testing.T) {
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rr.Code)
+	}
+	if called {
+		t.Error("downstream handler should not be called on auth failure")
 	}
 }
 
