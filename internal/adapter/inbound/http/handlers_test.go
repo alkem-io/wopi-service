@@ -758,7 +758,16 @@ func TestNewRouter_Constructs(t *testing.T) {
 
 	// HealthHandler needs real pool/conn — just test that NewRouter doesn't panic with nil
 	// We'll skip health in this test
-	router := NewRouter(tokenSvc, tokenHandler, wopiHandler, nil, discoveryHandler)
+	router := NewRouter(RouterDeps{
+		TokenSvc:         tokenSvc,
+		DiscoverySvc:     discSvc,
+		TokenHandler:     tokenHandler,
+		WOPIHandler:      wopiHandler,
+		HealthHandler:    nil,
+		DiscoveryHandler: discoveryHandler,
+		ProofValidation:  false,
+		Logger:           zap.NewNop(),
+	})
 	if router == nil {
 		t.Error("expected non-nil router")
 	}
@@ -777,11 +786,12 @@ func TestRegisterWOPIRoutes(t *testing.T) {
 	}
 }
 
-// --- ProofMiddleware test ---
+// --- ProofMiddleware tests ---
 
-func TestProofMiddleware_PassThrough(t *testing.T) {
+func TestProofMiddleware_Disabled(t *testing.T) {
 	var called bool
-	handler := ProofMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	mw := ProofMiddleware(false, nil, zap.NewNop())
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -790,9 +800,50 @@ func TestProofMiddleware_PassThrough(t *testing.T) {
 	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	if !called {
-		t.Error("expected next handler to be called")
+		t.Error("expected next handler to be called when disabled")
 	}
 	if rr.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rr.Code)
+	}
+}
+
+func TestProofMiddleware_Enabled_NoKeys(t *testing.T) {
+	discClient := &mockDiscoveryClientForHandler{err: io.ErrUnexpectedEOF}
+	discSvc := service.NewDiscoveryService(discClient, zap.NewNop())
+
+	mw := ProofMiddleware(true, discSvc, zap.NewNop())
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500 when no keys available", rr.Code)
+	}
+}
+
+func TestProofMiddleware_Enabled_MissingHeaders(t *testing.T) {
+	data := &port.DiscoveryData{
+		ProofKey: port.ProofKey{Modulus: "abc", Exponent: "def"},
+	}
+	discClient := &mockDiscoveryClientForHandler{data: data}
+	discSvc := service.NewDiscoveryService(discClient, zap.NewNop())
+	// Prime the cache
+	_, _ = discSvc.GetDiscovery(context.Background())
+
+	mw := ProofMiddleware(true, discSvc, zap.NewNop())
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/wopi/files/f1?access_token=tok", nil)
+	// No X-WOPI-Proof headers
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 for missing proof headers", rr.Code)
 	}
 }

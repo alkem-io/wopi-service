@@ -84,7 +84,7 @@ paths:
     post:
       tags:
         - /wopi/token
-      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.TokenHandler.ServeHTTP
+      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.RouterDeps.TokenHandler.ServeHTTP
       requestBody:
         content:
           application/json:

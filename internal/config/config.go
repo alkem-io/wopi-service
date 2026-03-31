@@ -24,9 +24,10 @@ type Config struct {
 	CollaboraURL string
 
 	// Service
-	BaseURL     string
-	TokenSecret string
-	ServerPort  string
+	BaseURL         string
+	TokenSecret     string
+	ServerPort      string
+	ProofValidation bool
 }
 
 // DatabaseConfig holds PostgreSQL connection parameters.
@@ -80,10 +81,11 @@ func Load() (*Config, error) {
 		FileService: FileServiceConfig{
 			URL: getEnv("FILE_SERVICE_URL", "http://localhost:4003"),
 		},
-		CollaboraURL: getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
-		BaseURL:      getEnv("WOPI_BASE_URL", "http://localhost:8080"),
-		TokenSecret:  requireEnv("WOPI_TOKEN_SECRET"),
-		ServerPort:   getEnv("WOPI_SERVER_PORT", "8080"),
+		CollaboraURL:    getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
+		BaseURL:         getEnv("WOPI_BASE_URL", "http://localhost:8080"),
+		TokenSecret:     requireEnv("WOPI_TOKEN_SECRET"),
+		ServerPort:      getEnv("WOPI_SERVER_PORT", "8080"),
+		ProofValidation: getEnv("WOPI_PROOF_VALIDATION", "true") == "true",
 	}
 
 	return cfg, nil

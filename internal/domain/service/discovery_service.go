@@ -56,6 +56,17 @@ func (s *DiscoveryService) InvalidateAndRefresh(ctx context.Context) (*port.Disc
 	return s.refresh(ctx)
 }
 
+// GetProofKeys returns the cached proof keys, or nil if no discovery data is available.
+func (s *DiscoveryService) GetProofKeys() *port.ProofKey {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cached == nil {
+		return nil
+	}
+	pk := s.cached.ProofKey
+	return &pk
+}
+
 func (s *DiscoveryService) refresh(ctx context.Context) (*port.DiscoveryData, error) {
 	data, err := s.client.FetchDiscovery(ctx)
 	if err != nil {

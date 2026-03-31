@@ -3,18 +3,25 @@ package http
 import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
 
 	"github.com/alkem-io/wopi-service/internal/domain/service"
 )
 
+// RouterDeps holds dependencies for the router.
+type RouterDeps struct {
+	TokenSvc         *service.TokenService
+	DiscoverySvc     *service.DiscoveryService
+	TokenHandler     *TokenHandler
+	WOPIHandler      *WOPIHandler
+	HealthHandler    *HealthHandler
+	DiscoveryHandler *DiscoveryHandler
+	ProofValidation  bool
+	Logger           *zap.Logger
+}
+
 // NewRouter creates and configures the chi router with all routes.
-func NewRouter(
-	tokenSvc *service.TokenService,
-	tokenHandler *TokenHandler,
-	wopiHandler *WOPIHandler,
-	healthHandler *HealthHandler,
-	discoveryHandler *DiscoveryHandler,
-) chi.Router {
+func NewRouter(deps RouterDeps) chi.Router {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -23,22 +30,22 @@ func NewRouter(
 	r.Use(middleware.Recoverer)
 
 	// Health check — no auth
-	r.Handle("/health", healthHandler)
+	r.Handle("/health", deps.HealthHandler)
 
 	// Discovery — no auth (public info)
-	r.Handle("/wopi/discovery", discoveryHandler)
+	r.Handle("/wopi/discovery", deps.DiscoveryHandler)
 
 	// Token issuance — behind Oathkeeper (JWT auth)
 	r.Route("/wopi/token", func(sub chi.Router) {
 		sub.Use(JWTMiddleware)
-		sub.Post("/", tokenHandler.ServeHTTP)
+		sub.Post("/", deps.TokenHandler.ServeHTTP)
 	})
 
 	// WOPI protocol endpoints — access token auth + proof validation
 	r.Group(func(sub chi.Router) {
-		sub.Use(TokenAuthMiddleware(tokenSvc))
-		sub.Use(ProofMiddleware)
-		RegisterWOPIRoutes(sub, wopiHandler)
+		sub.Use(TokenAuthMiddleware(deps.TokenSvc))
+		sub.Use(ProofMiddleware(deps.ProofValidation, deps.DiscoverySvc, deps.Logger))
+		RegisterWOPIRoutes(sub, deps.WOPIHandler)
 	})
 
 	return r

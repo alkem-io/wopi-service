@@ -61,7 +61,16 @@ func main() {
 	go services.cleanup.Start(ctx)
 
 	handlers := createHandlers(services, wopiPool, nc, logger)
-	router := wopihttp.NewRouter(services.token, handlers.token, handlers.wopi, handlers.health, handlers.discovery)
+	router := wopihttp.NewRouter(wopihttp.RouterDeps{
+		TokenSvc:         services.token,
+		DiscoverySvc:     services.discovery,
+		TokenHandler:     handlers.token,
+		WOPIHandler:      handlers.wopi,
+		HealthHandler:    handlers.health,
+		DiscoveryHandler: handlers.discovery,
+		ProofValidation:  cfg.ProofValidation,
+		Logger:           logger,
+	})
 
 	logger.Info("all services initialized",
 		zap.String("wopi_db", cfg.Database.Host),
