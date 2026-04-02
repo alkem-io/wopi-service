@@ -208,8 +208,11 @@ MUST be verified online (pkg.go.dev, GitHub releases, etc.).
 
 - Never rely on AI training data for version numbers — it is likely
   outdated.
-- Dependencies MUST be pinned to specific versions, but those
-  versions MUST be current at time of addition.
+- Production/runtime dependencies MUST be pinned to specific
+  versions, and those versions MUST be current at time of addition.
+- Exception: CI tooling (linters, code generators) MAY
+  intentionally track `latest` when documented, to detect upstream
+  breaking changes early.
 
 ### XV. No Assumptions
 

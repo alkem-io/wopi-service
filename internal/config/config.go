@@ -42,6 +42,8 @@ type DatabaseConfig struct {
 }
 
 // DSN returns the PostgreSQL connection string.
+// sslmode=disable: TLS is handled at the network level (K8s service mesh),
+// not at the PostgreSQL connection level.
 func (c DatabaseConfig) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable&connect_timeout=%d",
@@ -123,8 +125,12 @@ func Load() (*Config, error) {
 		},
 		CollaboraURL: getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
 		BaseURL:      getEnv("WOPI_BASE_URL", "http://localhost:8080"),
-		TokenSecret:  requireEnv("WOPI_TOKEN_SECRET"),
+		TokenSecret:  getEnv("WOPI_TOKEN_SECRET", ""),
 		ServerPort:   getEnv("WOPI_SERVER_PORT", "8080"),
+	}
+
+	if cfg.TokenSecret == "" {
+		return nil, fmt.Errorf("required environment variable WOPI_TOKEN_SECRET is not set")
 	}
 
 	proofVal := getEnv("WOPI_PROOF_VALIDATION", "true")
@@ -145,14 +151,6 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func requireEnv(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		panic(fmt.Sprintf("required environment variable %s is not set", key))
-	}
-	return v
 }
 
 func parseUint32Strict(s string) (uint32, error) {

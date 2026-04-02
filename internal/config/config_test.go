@@ -91,12 +91,10 @@ func TestLoad_CustomValues(t *testing.T) {
 
 func TestLoad_MissingRequiredSecret(t *testing.T) {
 	t.Setenv("WOPI_TOKEN_SECRET", "")
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for missing WOPI_TOKEN_SECRET")
-		}
-	}()
-	_, _ = Load()
+	_, err := Load()
+	if err == nil {
+		t.Error("expected error for missing WOPI_TOKEN_SECRET")
+	}
 }
 
 func TestLoad_InvalidTimeout(t *testing.T) {
