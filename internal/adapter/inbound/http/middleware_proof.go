@@ -138,6 +138,10 @@ func buildRSAKey(modulusB64, exponentB64 string) (*rsa.PublicKey, error) {
 	modulus := new(big.Int).SetBytes(modBytes)
 	exponent := new(big.Int).SetBytes(expBytes)
 
+	if !exponent.IsInt64() || exponent.Int64() <= 0 {
+		return nil, errInvalidKeyEncoding
+	}
+
 	return &rsa.PublicKey{
 		N: modulus,
 		E: int(exponent.Int64()),
@@ -162,9 +166,12 @@ func isTimestampFresh(ticks int64) bool {
 }
 
 func requestURL(r *http.Request) string {
-	scheme := "https"
-	if r.TLS == nil {
-		scheme = "http"
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		scheme = "https"
+		if r.TLS == nil {
+			scheme = "http"
+		}
 	}
 	return scheme + "://" + r.Host + r.URL.RequestURI()
 }

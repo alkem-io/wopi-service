@@ -37,7 +37,8 @@ func main() {
 		logger.Fatal("failed to load config", zap.Error(err))
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	if err := runMigrations(cfg.Database.DSN(), logger); err != nil {
 		logger.Fatal("failed to run migrations", zap.Error(err))
@@ -79,7 +80,7 @@ func main() {
 	)
 
 	srv := newHTTPServer(cfg.ServerPort, router)
-	go gracefulShutdown(srv, logger)
+	go gracefulShutdown(srv, cancel, logger)
 
 	logger.Info("starting WOPI service", zap.String("port", cfg.ServerPort))
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -164,11 +165,12 @@ func newHTTPServer(port string, handler http.Handler) *http.Server {
 	}
 }
 
-func gracefulShutdown(srv *http.Server, logger *zap.Logger) {
+func gracefulShutdown(srv *http.Server, cancelApp context.CancelFunc, logger *zap.Logger) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	logger.Info("shutting down")
+	cancelApp() // cancel app context → stops cleanup goroutine
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

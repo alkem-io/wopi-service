@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -9,9 +10,19 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres"
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
+
+// wrapStaleLock converts ErrStaleLock from the repository layer into a
+// LockConflictError so the handler returns 409 instead of 500.
+func wrapStaleLock(err error) error {
+	if err != nil && errors.Is(err, postgres.ErrStaleLock) {
+		return &LockConflictError{ExistingLockID: ""}
+	}
+	return err
+}
 
 // WOPIService implements the core WOPI use cases.
 type WOPIService struct {
@@ -114,7 +125,7 @@ func (s *WOPIService) Lock(ctx context.Context, fileID, lockID string) error {
 	if existing != nil {
 		if existing.LockID == lockID {
 			existing.ExpiresAt = time.Now().Add(model.DefaultLockDuration)
-			return s.lockRepo.RefreshExpiry(ctx, fileID, lockID, existing)
+			return wrapStaleLock(s.lockRepo.RefreshExpiry(ctx, fileID, lockID, existing))
 		}
 		return &LockConflictError{ExistingLockID: existing.LockID}
 	}
@@ -145,7 +156,7 @@ func (s *WOPIService) Unlock(ctx context.Context, fileID, lockID string) error {
 		return &LockConflictError{ExistingLockID: existing.LockID}
 	}
 
-	return s.lockRepo.DeleteByFileID(ctx, fileID, lockID)
+	return wrapStaleLock(s.lockRepo.DeleteByFileID(ctx, fileID, lockID))
 }
 
 // RefreshLock extends the expiry of an existing lock.
@@ -163,7 +174,7 @@ func (s *WOPIService) RefreshLock(ctx context.Context, fileID, lockID string) er
 	}
 
 	existing.ExpiresAt = time.Now().Add(model.DefaultLockDuration)
-	return s.lockRepo.RefreshExpiry(ctx, fileID, lockID, existing)
+	return wrapStaleLock(s.lockRepo.RefreshExpiry(ctx, fileID, lockID, existing))
 }
 
 // UnlockAndRelock atomically replaces one lock with another.
@@ -181,5 +192,5 @@ func (s *WOPIService) UnlockAndRelock(ctx context.Context, fileID, newLockID, ol
 	}
 
 	newLock := model.Lock{ExpiresAt: time.Now().Add(model.DefaultLockDuration)}
-	return s.lockRepo.UpdateLockID(ctx, fileID, oldLockID, newLockID, newLock)
+	return wrapStaleLock(s.lockRepo.UpdateLockID(ctx, fileID, oldLockID, newLockID, newLock))
 }

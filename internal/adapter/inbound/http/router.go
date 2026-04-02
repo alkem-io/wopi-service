@@ -29,8 +29,9 @@ func NewRouter(deps RouterDeps) chi.Router {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
-	// Health check — no auth
-	r.Handle("/health", deps.HealthHandler)
+	// Health checks — no auth
+	r.Handle("/health", deps.HealthHandler) // readiness: checks DB + NATS
+	r.HandleFunc("/live", LiveHandler)      // liveness: process-local only
 
 	// Discovery — no auth (public info)
 	r.Handle("/wopi/discovery", deps.DiscoveryHandler)
