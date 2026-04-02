@@ -5,7 +5,7 @@
 
 ## Overview
 
-The WOPI service integrates with three external services. Auth transport
+The WOPI service integrates with four external services. Auth transport
 is configurable (h2c preferred, NATS fallback).
 
 ---
@@ -108,8 +108,13 @@ GET /internal/document/:id/meta
 }
 ```
 
-**Used by**: Token issuance (get authorizationPolicyId),
-CheckFileInfo (file metadata).
+Note: The JSON field is `authorizationId` (Alkemio DB column name,
+TypeORM convention). The WOPI service maps this to
+`AuthorizationPolicyID` in its domain model. Both refer to the
+same UUID — the FK to the `authorization_policy` table.
+
+**Used by**: Token issuance (get authorization policy ID for NATS/h2c
+auth check), CheckFileInfo (file metadata).
 
 ### Read File Content
 

@@ -74,18 +74,30 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid WOPI_DATABASE_TIMEOUT: %w", err)
 	}
+	if dbTimeout <= 0 {
+		return nil, fmt.Errorf("WOPI_DATABASE_TIMEOUT must be positive")
+	}
 
 	breakerFailures, err := parseUint32Strict(getEnv("AUTH_BREAKER_FAILURE_THRESHOLD", "3"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid AUTH_BREAKER_FAILURE_THRESHOLD: %w", err)
 	}
+	if breakerFailures == 0 {
+		return nil, fmt.Errorf("AUTH_BREAKER_FAILURE_THRESHOLD must be positive")
+	}
 	breakerTimeout, err := parseIntStrict(getEnv("AUTH_BREAKER_TIMEOUT_SECONDS", "15"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid AUTH_BREAKER_TIMEOUT_SECONDS: %w", err)
 	}
+	if breakerTimeout <= 0 {
+		return nil, fmt.Errorf("AUTH_BREAKER_TIMEOUT_SECONDS must be positive")
+	}
 	breakerHalfOpen, err := parseUint32Strict(getEnv("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS", "2"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS: %w", err)
+	}
+	if breakerHalfOpen == 0 {
+		return nil, fmt.Errorf("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS must be positive")
 	}
 
 	cfg := &Config{

@@ -118,7 +118,7 @@ MIME types and editor action URLs.
 
 ### Key Entities
 
-- **Document** (via file-service-go): File metadata in Alkemio. Key attributes: id (UUID), externalID (SHA3-256 hash), displayName, mimeType, size, authorizationId. Looked up via file-service-go `GET /internal/document/:id/meta`.
+- **Document** (via file-service-go): File metadata in Alkemio. Key attributes: id (UUID), externalID (SHA3-256 hash), displayName, mimeType, size, authorizationId (JSON field name, mapped to `AuthorizationPolicyID` in domain model). Looked up via file-service-go `GET /internal/document/:id/meta`.
 - **AccessToken**: An opaque, DB-backed token granting a specific actor specific permissions on a specific file. Validated via database lookup on each request. Default TTL: 8 hours. Key attributes: token value, file ID, actor ID, permissions, expiry.
 - **Lock**: Represents an active edit lock on a file. Default expiry: 30 minutes, extended by RefreshLock. Key attributes: lock ID, file ID, created timestamp, expiry timestamp.
 - **WOPISession**: Tracks an active editing session. Links an actor, file, and access token. Key attributes: session ID, actor ID, file ID, token reference, created timestamp.
