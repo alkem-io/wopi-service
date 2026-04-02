@@ -52,7 +52,8 @@ jobs:
       - name: Verify container starts
         run: |
           docker create --name wopi-test wopi-service:test
-          docker cp wopi-test:/app/wopi-service /dev/null
+          docker cp wopi-test:/app/wopi-service /tmp/wopi-service-check
+          rm -f /tmp/wopi-service-check
           echo "Binary exists in container"
           docker rm wopi-test
 
