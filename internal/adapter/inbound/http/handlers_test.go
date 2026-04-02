@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres"
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 	"github.com/alkem-io/wopi-service/internal/domain/service"
@@ -77,20 +78,28 @@ func (m *handlerMockLockRepo) Create(_ context.Context, lock *model.Lock) error 
 func (m *handlerMockLockRepo) FindByFileID(_ context.Context, fileID string) (*model.Lock, error) {
 	return m.locks[fileID], nil
 }
-func (m *handlerMockLockRepo) UpdateLockID(_ context.Context, fileID, _, newLockID string, lock model.Lock) error {
-	if existing, ok := m.locks[fileID]; ok {
-		existing.LockID = newLockID
-		existing.ExpiresAt = lock.ExpiresAt
+func (m *handlerMockLockRepo) UpdateLockID(_ context.Context, fileID, currentLockID, newLockID string, lock model.Lock) error {
+	existing, ok := m.locks[fileID]
+	if !ok || existing.LockID != currentLockID {
+		return postgres.ErrStaleLock
 	}
+	existing.LockID = newLockID
+	existing.ExpiresAt = lock.ExpiresAt
 	return nil
 }
-func (m *handlerMockLockRepo) RefreshExpiry(_ context.Context, fileID, _ string, lock *model.Lock) error {
-	if existing, ok := m.locks[fileID]; ok {
-		existing.ExpiresAt = lock.ExpiresAt
+func (m *handlerMockLockRepo) RefreshExpiry(_ context.Context, fileID, lockID string, lock *model.Lock) error {
+	existing, ok := m.locks[fileID]
+	if !ok || existing.LockID != lockID {
+		return postgres.ErrStaleLock
 	}
+	existing.ExpiresAt = lock.ExpiresAt
 	return nil
 }
-func (m *handlerMockLockRepo) DeleteByFileID(_ context.Context, fileID, _ string) error {
+func (m *handlerMockLockRepo) DeleteByFileID(_ context.Context, fileID, lockID string) error {
+	existing, ok := m.locks[fileID]
+	if !ok || existing.LockID != lockID {
+		return postgres.ErrStaleLock
+	}
 	delete(m.locks, fileID)
 	return nil
 }

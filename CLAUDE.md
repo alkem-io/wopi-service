@@ -5,7 +5,7 @@ integration into the Alkemio platform.
 
 ## Tech Stack
 
-- **Language**: Go 1.25
+- **Language**: Go 1.26
 - **Database**: PostgreSQL, pgx v5 driver, sqlc for query generation
 - **Authorization**: NATS via authorization-evaluation-service (`auth.evaluate`)
 - **Identity**: Oathkeeper JWT (`alkemio_actor_id` claim) on token issuance endpoint
