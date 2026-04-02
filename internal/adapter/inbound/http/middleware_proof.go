@@ -162,7 +162,11 @@ func isTimestampFresh(ticks int64) bool {
 
 	unixNanos := (ticks - unixEpochTicks) * 100
 	proofTime := time.Unix(0, unixNanos)
-	return time.Since(proofTime) <= proofTimestampMaxAge
+	skew := time.Since(proofTime)
+	if skew < 0 {
+		skew = -skew
+	}
+	return skew <= proofTimestampMaxAge
 }
 
 func requestURL(r *http.Request) string {

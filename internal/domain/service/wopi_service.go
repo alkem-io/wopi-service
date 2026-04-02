@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres"
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
@@ -18,7 +17,7 @@ import (
 // wrapStaleLock converts ErrStaleLock from the repository layer into a
 // LockConflictError so the handler returns 409 instead of 500.
 func wrapStaleLock(err error) error {
-	if err != nil && errors.Is(err, postgres.ErrStaleLock) {
+	if err != nil && errors.Is(err, port.ErrStaleLock) {
 		return &LockConflictError{ExistingLockID: ""}
 	}
 	return err
@@ -117,6 +116,10 @@ func (s *WOPIService) PutFile(ctx context.Context, token *model.AccessToken, loc
 
 // Lock acquires or refreshes a lock on a file.
 func (s *WOPIService) Lock(ctx context.Context, fileID, lockID string) error {
+	if lockID == "" {
+		return fmt.Errorf("lock ID must not be empty")
+	}
+
 	existing, err := s.lockRepo.FindByFileID(ctx, fileID)
 	if err != nil {
 		return fmt.Errorf("check existing lock: %w", err)

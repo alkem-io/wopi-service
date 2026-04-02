@@ -2,9 +2,15 @@ package port
 
 import (
 	"context"
+	"errors"
 
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 )
+
+// ErrStaleLock is returned by CAS lock operations when the expected lock_id
+// no longer matches (concurrent modification). Adapters MUST return this error
+// when a conditional write affects zero rows.
+var ErrStaleLock = errors.New("stale lock: concurrent modification detected")
 
 // LockRepository manages WOPI file lock persistence.
 // Write operations use compare-and-swap (CAS) on lock_id to prevent races.

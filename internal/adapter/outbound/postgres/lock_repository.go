@@ -9,10 +9,8 @@ import (
 
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres/generated"
 	"github.com/alkem-io/wopi-service/internal/domain/model"
+	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
-
-// ErrStaleLock is returned when a CAS operation finds zero affected rows.
-var ErrStaleLock = errors.New("stale lock: concurrent modification detected")
 
 // LockRepository implements port.LockRepository using PostgreSQL.
 type LockRepository struct {
@@ -71,7 +69,7 @@ func (r *LockRepository) UpdateLockID(ctx context.Context, fileID, currentLockID
 		return err
 	}
 	if rows == 0 {
-		return ErrStaleLock
+		return port.ErrStaleLock
 	}
 	return nil
 }
@@ -91,7 +89,7 @@ func (r *LockRepository) RefreshExpiry(ctx context.Context, fileID, lockID strin
 		return err
 	}
 	if rows == 0 {
-		return ErrStaleLock
+		return port.ErrStaleLock
 	}
 	return nil
 }
@@ -107,7 +105,7 @@ func (r *LockRepository) DeleteByFileID(ctx context.Context, fileID, lockID stri
 		return err
 	}
 	if rows == 0 {
-		return ErrStaleLock
+		return port.ErrStaleLock
 	}
 	return nil
 }

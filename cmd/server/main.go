@@ -61,6 +61,13 @@ func main() {
 
 	go services.cleanup.Start(ctx)
 
+	// Prime discovery cache so proof validation works on first request
+	if cfg.ProofValidation {
+		if _, err := services.discovery.GetDiscovery(ctx); err != nil {
+			logger.Warn("failed to prime discovery cache at startup", zap.Error(err))
+		}
+	}
+
 	handlers := createHandlers(services, wopiPool, nc, logger)
 	router := wopihttp.NewRouter(wopihttp.RouterDeps{
 		TokenSvc:         services.token,
