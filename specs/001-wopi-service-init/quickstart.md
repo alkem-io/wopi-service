@@ -2,11 +2,10 @@
 
 ## Prerequisites
 
-- Go 1.25
+- Go 1.26
 - PostgreSQL (running, with a database created for WOPI service)
-- NATS server (running)
+- Authorization-evaluation-service (running, h2c or NATS)
 - file-service-go (running, reachable)
-- Alkemio Server + PostgreSQL (running, for document metadata)
 - Collabora Online (running, reachable)
 - Oathkeeper (running, configured for WOPI token endpoint)
 
@@ -24,15 +23,9 @@ export WOPI_DATABASE_PASSWORD="postgres"
 export WOPI_DATABASE_NAME="wopi"
 export WOPI_DATABASE_TIMEOUT="5s"
 
-# Alkemio database (read-only)
-export ALKEMIO_DATABASE_HOST="localhost"
-export ALKEMIO_DATABASE_PORT="5432"
-export ALKEMIO_DATABASE_USERNAME="readonly"
-export ALKEMIO_DATABASE_PASSWORD="readonly"
-export ALKEMIO_DATABASE_NAME="alkemio"
-
-# NATS
-export NATS_URL="nats://localhost:4222"
+# Authorization (h2c preferred — set one)
+export AUTH_SERVICE_URL="http://localhost:6060"
+# Or for NATS: export NATS_URL="nats://localhost:4222"
 
 # File service
 export FILE_SERVICE_URL="http://localhost:4003"
@@ -43,9 +36,7 @@ export WOPI_BASE_URL="http://localhost:8080"
 export WOPI_TOKEN_SECRET="your-secret-key"
 export WOPI_SERVER_PORT="8080"
 
-# Run database migrations
-go run cmd/server/main.go migrate
-
+# Run database migrations (happen at startup)
 # Start the service
 go run cmd/server/main.go
 ```
@@ -53,7 +44,11 @@ go run cmd/server/main.go
 ## Verify
 
 ```bash
-# Health check
+# Liveness check
+curl http://localhost:8080/live
+# Expected: {"status":"ok"}
+
+# Readiness check (requires DB connection)
 curl http://localhost:8080/health
 # Expected: {"status":"ok"}
 
@@ -66,13 +61,16 @@ curl http://localhost:8080/wopi/discovery
 
 ```bash
 # Generate sqlc code after modifying .sql files
-sqlc generate
+make generate
+
+# Generate OpenAPI spec
+make openapi
 
 # Run linter
-golangci-lint run
+make lint
 
 # Run tests
-go test ./...
+make test
 ```
 
 ## End-to-End Test Flow

@@ -16,14 +16,14 @@ managed in the service's own PostgreSQL database (sqlc/pgx v5).
 
 ## Technical Context
 
-**Language/Version**: Go 1.25
-**Primary Dependencies**: chi v5 (HTTP router), pgx v5 (PostgreSQL driver), sqlc (query generation), golang-migrate (migrations), zap (structured logging), nats.go (NATS client)
-**Storage**: Own PostgreSQL for local state (access tokens, locks, sessions); Alkemio PostgreSQL (read-only) for document metadata; file content via file-service-go
-**Testing**: `go test` with table-driven tests; in-memory adapters for unit tests
+**Language/Version**: Go 1.26
+**Primary Dependencies**: chi v5 (HTTP router), pgx v5 (PostgreSQL driver), sqlc (query generation), golang-migrate (migrations), zap (structured logging), nats.go (NATS client, optional), golang.org/x/net/http2 (h2c), sony/gobreaker (circuit breaker)
+**Storage**: Own PostgreSQL for local state (access tokens, locks, sessions); document metadata and file content via file-service-go
+**Testing**: `go test` with table-driven tests; in-memory adapters, pgxmock, in-process NATS for unit tests
 **Target Platform**: Linux server (containerized)
 **Project Type**: Web service (WOPI host)
 **Performance Goals**: Low-frequency WOPI requests (handful per minute per document)
-**Constraints**: Must integrate with Oathkeeper, NATS auth-evaluation-service, file-service-go, and Alkemio DB
+**Constraints**: Must integrate with Oathkeeper, authorization-evaluation-service (h2c or NATS), and file-service-go
 **Scale/Scope**: Single-service deployment alongside Alkemio stack
 
 ## Constitution Check
@@ -96,16 +96,18 @@ internal/
 │       ├── postgres/
 │       │   ├── queries/
 │       │   │   ├── tokens.sql
-│       │   │   ├── locks.sql
+│       │   │   ├── locks.sql              # CAS operations with lock_id in WHERE
 │       │   │   └── sessions.sql
 │       │   ├── generated/                  # sqlc output (committed)
 │       │   ├── token_repository.go
 │       │   ├── lock_repository.go
 │       │   └── session_repository.go
-│       ├── alkemiodb/
-│       │   └── document_repository.go      # Read-only Alkemio DB document lookup
+│       ├── authhttp/
+│       │   └── auth_service.go             # h2c HTTP auth client (preferred)
 │       ├── nats/
-│       │   └── auth_service.go             # NATS auth-evaluation-service client
+│       │   └── auth_service.go             # NATS auth client (fallback)
+│       ├── authbreaker/
+│       │   └── breaker.go                  # Circuit breaker wrapper (shared)
 │       ├── fileservice/
 │       │   └── file_client.go              # HTTP client for file-service-go
 │       └── collabora/
