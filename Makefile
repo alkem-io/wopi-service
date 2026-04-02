@@ -17,6 +17,7 @@ generate:
 
 openapi:
 	apispec --dir . --output openapi.yaml --config apispec.yaml --skip-cgo
+	yq -i '.info |= sort_keys(..) | .paths |= sort_keys(..) | .components |= sort_keys(..)' openapi.yaml
 
 # Quality
 test:
