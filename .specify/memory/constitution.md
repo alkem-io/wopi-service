@@ -295,10 +295,11 @@ The WOPI service integrates with two primary external systems:
   displayName, mimeType, and size for WOPI operations.
 
 **file-service-go** (Go, HTTP, cluster-internal):
-- Private endpoints for file read/write/delete.
-- GetFile reads via `GET /internal/storage/:externalID`.
-- PutFile writes via `PUT /internal/storage/document/:documentId`
-  (store-and-link: writes file + updates document record).
+- Private endpoints for file metadata and content.
+- Metadata via `GET /internal/document/:id/meta`.
+- GetFile reads content via `GET /internal/document/:id/content`.
+- PutFile writes content via `PUT /internal/document/:id/content`
+  (store-and-link: replaces file + updates document record).
 
 **Collabora Online**:
 - Acts as the WOPI client consuming this service's WOPI endpoints.
