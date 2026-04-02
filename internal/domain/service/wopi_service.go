@@ -182,6 +182,13 @@ func (s *WOPIService) RefreshLock(ctx context.Context, fileID, lockID string) er
 
 // UnlockAndRelock atomically replaces one lock with another.
 func (s *WOPIService) UnlockAndRelock(ctx context.Context, fileID, newLockID, oldLockID string) error {
+	if newLockID == "" {
+		return fmt.Errorf("new lock ID must not be empty")
+	}
+	if oldLockID == "" {
+		return fmt.Errorf("old lock ID must not be empty")
+	}
+
 	existing, err := s.lockRepo.FindByFileID(ctx, fileID)
 	if err != nil {
 		return fmt.Errorf("check existing lock: %w", err)
