@@ -88,7 +88,7 @@ func Load() (*Config, error) {
 			URL: getEnv("NATS_URL", ""),
 		},
 		AuthSvc: AuthSvcConfig{
-			URL:                getEnv("AUTH_SERVICE_URL", "http://authorization-evaluation-service:6060"),
+			URL:                getEnv("AUTH_SERVICE_URL", ""),
 			BreakerFailures:    parseUint32(getEnv("AUTH_BREAKER_FAILURE_THRESHOLD", "3")),
 			BreakerTimeoutSecs: parseInt(getEnv("AUTH_BREAKER_TIMEOUT_SECONDS", "15")),
 			BreakerHalfOpenMax: parseUint32(getEnv("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS", "2")),

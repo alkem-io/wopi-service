@@ -85,9 +85,12 @@ Database (own, matching oidc-service pattern):
 Alkemio DB (read-only):
 - `ALKEMIO_DATABASE_HOST/PORT/USERNAME/PASSWORD/NAME`
 
-Authorization (mutually exclusive — h2c is default):
-- `AUTH_SERVICE_URL` (default: `http://authorization-evaluation-service:6060`)
-- `NATS_URL` (if set, uses NATS transport instead of h2c)
+Authorization (h2c preferred, NATS fallback — at least one required):
+- `AUTH_SERVICE_URL` — h2c endpoint (preferred if set)
+- `NATS_URL` — NATS endpoint (fallback if AUTH_SERVICE_URL not set)
+- `AUTH_BREAKER_FAILURE_THRESHOLD` (default: 3)
+- `AUTH_BREAKER_TIMEOUT_SECONDS` (default: 15)
+- `AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS` (default: 2)
 
 File service:
 - `FILE_SERVICE_URL` (e.g., `http://file-service-go:4003`)

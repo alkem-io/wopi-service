@@ -44,11 +44,8 @@ spec:
               value: "wopi"
             - name: WOPI_DATABASE_TIMEOUT
               value: "5s"
-            - name: NATS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: wopi-service-secrets
-                  key: nats-url
+            - name: AUTH_SERVICE_URL
+              value: "http://authorization-evaluation-service:6060"
             - name: FILE_SERVICE_URL
               value: "http://storage-service:4003"
             - name: WOPI_COLLABORA_URL

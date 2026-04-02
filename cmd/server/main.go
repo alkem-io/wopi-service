@@ -53,10 +53,14 @@ func main() {
 	}
 	defer wopiPool.Close()
 
-	// Select auth transport: NATS (legacy) or h2c (preferred)
+	// Select auth transport: h2c preferred if AUTH_SERVICE_URL is set, NATS as fallback
 	var rawAuthSvc port.AuthService
 	var nc *nats.Conn
-	if cfg.NATS.URL != "" {
+	switch {
+	case cfg.AuthSvc.URL != "":
+		rawAuthSvc = authhttp.NewAuthService(cfg.AuthSvc.URL)
+		logger.Info("auth transport: h2c", zap.String("url", cfg.AuthSvc.URL))
+	case cfg.NATS.URL != "":
 		nc, err = connectNATS(cfg.NATS.URL)
 		if err != nil {
 			logger.Fatal("failed to connect to NATS", zap.Error(err))
@@ -64,9 +68,8 @@ func main() {
 		defer nc.Close()
 		rawAuthSvc = natsadapter.NewAuthService(nc)
 		logger.Info("auth transport: NATS", zap.String("url", cfg.NATS.URL))
-	} else {
-		rawAuthSvc = authhttp.NewAuthService(cfg.AuthSvc.URL)
-		logger.Info("auth transport: h2c", zap.String("url", cfg.AuthSvc.URL))
+	default:
+		logger.Fatal("either AUTH_SERVICE_URL or NATS_URL must be set")
 	}
 
 	// Wrap with circuit breaker (shared config for both transports)

@@ -10,12 +10,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  nats:
-    image: nats:2-alpine
-    ports:
-      - "4222:4222"
-      - "8222:8222"
-
   wopi-service:
     build: .
     ports:
@@ -27,17 +21,16 @@ services:
       WOPI_DATABASE_PASSWORD: postgres
       WOPI_DATABASE_NAME: wopi
       WOPI_DATABASE_TIMEOUT: 5s
-      NATS_URL: nats://nats:4222
+      AUTH_SERVICE_URL: http://authorization-evaluation-service:6060
       FILE_SERVICE_URL: http://file-service-go:4003
       WOPI_COLLABORA_URL: http://collabora:9980
       WOPI_BASE_URL: http://localhost:8080
       WOPI_TOKEN_SECRET: dev-secret-change-in-production
       WOPI_SERVER_PORT: "8080"
-      WAIT_HOSTS: postgres:5432,nats:4222
+      WAIT_HOSTS: postgres:5432
       WAIT_HOSTS_TIMEOUT: 30
     depends_on:
       - postgres
-      - nats
 
 volumes:
   pgdata:
