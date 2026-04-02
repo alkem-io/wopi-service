@@ -10,6 +10,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.12.6
 	github.com/nats-io/nats.go v1.50.0
 	github.com/pashagolub/pgxmock/v4 v4.9.0
+	github.com/sony/gobreaker/v2 v2.4.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/net v0.52.0
 )

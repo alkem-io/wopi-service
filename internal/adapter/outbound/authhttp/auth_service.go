@@ -3,18 +3,23 @@
 package authhttp
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"golang.org/x/net/http2"
 
 	"github.com/alkem-io/wopi-service/internal/domain/port"
+)
+
+const (
+	maxRetries    = 3
+	retryBaseWait = 50 * time.Millisecond
 )
 
 // AuthService implements port.AuthService via h2c HTTP to the
@@ -26,7 +31,6 @@ type AuthService struct {
 
 // NewAuthService creates a new h2c-capable AuthService.
 func NewAuthService(baseURL string) *AuthService {
-	// h2c transport: HTTP/2 over cleartext (no TLS)
 	transport := &http2.Transport{
 		AllowHTTP: true,
 		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
@@ -56,7 +60,8 @@ type evaluateResponse struct {
 }
 
 // CheckPrivilege verifies whether an agent has a privilege on a resource
-// via the authorization-evaluation-service h2c endpoint.
+// via the authorization-evaluation-service h2c endpoint. Retries on
+// transient connection errors (connection reset, refused, EOF).
 func (s *AuthService) CheckPrivilege(ctx context.Context, agentID, privilege, authorizationPolicyID string) (*port.AuthResult, error) {
 	req := evaluateRequest{
 		AgentID:               agentID,
@@ -69,8 +74,36 @@ func (s *AuthService) CheckPrivilege(ctx context.Context, agentID, privilege, au
 		return nil, fmt.Errorf("marshal auth request: %w", err)
 	}
 
+	var lastErr error
+	for attempt := range maxRetries {
+		result, err := s.doRequest(ctx, payload)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+
+		// Don't retry on context cancellation
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("auth request cancelled: %w", lastErr)
+		}
+
+		// Wait before retry with exponential backoff
+		if attempt < maxRetries-1 {
+			wait := retryBaseWait << uint(attempt)
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return nil, fmt.Errorf("auth request cancelled: %w", lastErr)
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("auth request failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+func (s *AuthService) doRequest(ctx context.Context, payload []byte) (*port.AuthResult, error) {
 	url := fmt.Sprintf("%s/internal/auth/evaluate", s.baseURL)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(payload)))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create auth request: %w", err)
 	}
@@ -78,9 +111,13 @@ func (s *AuthService) CheckPrivilege(ctx context.Context, agentID, privilege, au
 
 	resp, err := s.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("h2c auth request: %w", err)
+		return nil, err // transient — will be retried
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, fmt.Errorf("auth service unavailable (503)")
+	}
 
 	var result evaluateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

@@ -55,10 +55,12 @@ type NATSConfig struct {
 	URL string
 }
 
-// AuthSvcConfig holds authorization-evaluation-service h2c connection parameters.
-// URL is empty when NATS transport is used.
+// AuthSvcConfig holds authorization-evaluation-service connection parameters.
 type AuthSvcConfig struct {
-	URL string
+	URL                string
+	BreakerFailures    uint32
+	BreakerTimeoutSecs int
+	BreakerHalfOpenMax uint32
 }
 
 // FileServiceConfig holds file-service-go connection parameters.
@@ -86,7 +88,10 @@ func Load() (*Config, error) {
 			URL: getEnv("NATS_URL", ""),
 		},
 		AuthSvc: AuthSvcConfig{
-			URL: getEnv("AUTH_SERVICE_URL", "http://authorization-evaluation-service:6060"),
+			URL:                getEnv("AUTH_SERVICE_URL", "http://authorization-evaluation-service:6060"),
+			BreakerFailures:    parseUint32(getEnv("AUTH_BREAKER_FAILURE_THRESHOLD", "3")),
+			BreakerTimeoutSecs: parseInt(getEnv("AUTH_BREAKER_TIMEOUT_SECONDS", "15")),
+			BreakerHalfOpenMax: parseUint32(getEnv("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS", "2")),
 		},
 		FileService: FileServiceConfig{
 			URL: getEnv("FILE_SERVICE_URL", "http://localhost:4003"),
@@ -112,6 +117,22 @@ func requireEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
 		panic(fmt.Sprintf("required environment variable %s is not set", key))
+	}
+	return v
+}
+
+func parseUint32(s string) uint32 {
+	v, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return uint32(v)
+}
+
+func parseInt(s string) int {
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
 	}
 	return v
 }

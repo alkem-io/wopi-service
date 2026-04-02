@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	wopihttp "github.com/alkem-io/wopi-service/internal/adapter/inbound/http"
+	"github.com/alkem-io/wopi-service/internal/adapter/outbound/authbreaker"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/authhttp"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/collabora"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/fileservice"
@@ -53,7 +54,7 @@ func main() {
 	defer wopiPool.Close()
 
 	// Select auth transport: NATS (legacy) or h2c (preferred)
-	var authSvc port.AuthService
+	var rawAuthSvc port.AuthService
 	var nc *nats.Conn
 	if cfg.NATS.URL != "" {
 		nc, err = connectNATS(cfg.NATS.URL)
@@ -61,12 +62,19 @@ func main() {
 			logger.Fatal("failed to connect to NATS", zap.Error(err))
 		}
 		defer nc.Close()
-		authSvc = natsadapter.NewAuthService(nc)
+		rawAuthSvc = natsadapter.NewAuthService(nc)
 		logger.Info("auth transport: NATS", zap.String("url", cfg.NATS.URL))
 	} else {
-		authSvc = authhttp.NewAuthService(cfg.AuthSvc.URL)
+		rawAuthSvc = authhttp.NewAuthService(cfg.AuthSvc.URL)
 		logger.Info("auth transport: h2c", zap.String("url", cfg.AuthSvc.URL))
 	}
+
+	// Wrap with circuit breaker (shared config for both transports)
+	authSvc := authbreaker.Wrap(rawAuthSvc, authbreaker.BreakerConfig{
+		FailureThreshold: cfg.AuthSvc.BreakerFailures,
+		TimeoutSeconds:   cfg.AuthSvc.BreakerTimeoutSecs,
+		HalfOpenMax:      cfg.AuthSvc.BreakerHalfOpenMax,
+	})
 
 	adapters := createAdapters(wopiPool, authSvc, cfg)
 	services := createServices(adapters, cfg, logger)
