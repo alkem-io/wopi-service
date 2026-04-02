@@ -14,8 +14,9 @@ type Config struct {
 	// Own database (WOPI service state: tokens, locks, sessions)
 	Database DatabaseConfig
 
-	// NATS (authorization-evaluation-service)
-	NATS NATSConfig
+	// Authorization evaluation service (NATS or h2c — mutually exclusive)
+	NATS    NATSConfig
+	AuthSvc AuthSvcConfig
 
 	// file-service-go (file read/write)
 	FileService FileServiceConfig
@@ -49,8 +50,14 @@ func (c DatabaseConfig) DSN() string {
 	)
 }
 
-// NATSConfig holds NATS connection parameters.
+// NATSConfig holds NATS connection parameters. URL is empty when h2c transport is used.
 type NATSConfig struct {
+	URL string
+}
+
+// AuthSvcConfig holds authorization-evaluation-service h2c connection parameters.
+// URL is empty when NATS transport is used.
+type AuthSvcConfig struct {
 	URL string
 }
 
@@ -76,7 +83,10 @@ func Load() (*Config, error) {
 			Timeout:  dbTimeout,
 		},
 		NATS: NATSConfig{
-			URL: getEnv("NATS_URL", "nats://localhost:4222"),
+			URL: getEnv("NATS_URL", ""),
+		},
+		AuthSvc: AuthSvcConfig{
+			URL: getEnv("AUTH_SERVICE_URL", "http://authorization-evaluation-service:6060"),
 		},
 		FileService: FileServiceConfig{
 			URL: getEnv("FILE_SERVICE_URL", "http://localhost:4003"),

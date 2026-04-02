@@ -45,8 +45,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Database.Name != "wopi" {
 		t.Errorf("Database.Name = %q, want wopi", cfg.Database.Name)
 	}
-	if cfg.NATS.URL != "nats://localhost:4222" {
-		t.Errorf("NATS.URL = %q, want nats://localhost:4222", cfg.NATS.URL)
+	if cfg.NATS.URL != "" {
+		t.Errorf("NATS.URL = %q, want empty (h2c default)", cfg.NATS.URL)
 	}
 	if cfg.FileService.URL != "http://localhost:4003" {
 		t.Errorf("FileService.URL = %q, want http://localhost:4003", cfg.FileService.URL)

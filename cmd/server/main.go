@@ -19,11 +19,13 @@ import (
 	"go.uber.org/zap"
 
 	wopihttp "github.com/alkem-io/wopi-service/internal/adapter/inbound/http"
+	"github.com/alkem-io/wopi-service/internal/adapter/outbound/authhttp"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/collabora"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/fileservice"
 	natsadapter "github.com/alkem-io/wopi-service/internal/adapter/outbound/nats"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres"
 	"github.com/alkem-io/wopi-service/internal/config"
+	"github.com/alkem-io/wopi-service/internal/domain/port"
 	"github.com/alkem-io/wopi-service/internal/domain/service"
 	"github.com/alkem-io/wopi-service/migrations"
 )
@@ -50,18 +52,27 @@ func main() {
 	}
 	defer wopiPool.Close()
 
-	nc, err := connectNATS(cfg.NATS.URL)
-	if err != nil {
-		logger.Fatal("failed to connect to NATS", zap.Error(err))
+	// Select auth transport: NATS (legacy) or h2c (preferred)
+	var authSvc port.AuthService
+	var nc *nats.Conn
+	if cfg.NATS.URL != "" {
+		nc, err = connectNATS(cfg.NATS.URL)
+		if err != nil {
+			logger.Fatal("failed to connect to NATS", zap.Error(err))
+		}
+		defer nc.Close()
+		authSvc = natsadapter.NewAuthService(nc)
+		logger.Info("auth transport: NATS", zap.String("url", cfg.NATS.URL))
+	} else {
+		authSvc = authhttp.NewAuthService(cfg.AuthSvc.URL)
+		logger.Info("auth transport: h2c", zap.String("url", cfg.AuthSvc.URL))
 	}
-	defer nc.Close()
 
-	adapters := createAdapters(wopiPool, nc, cfg)
+	adapters := createAdapters(wopiPool, authSvc, cfg)
 	services := createServices(adapters, cfg, logger)
 
 	go services.cleanup.Start(ctx)
 
-	// Prime discovery cache so proof validation works on first request
 	if cfg.ProofValidation {
 		if _, err := services.discovery.GetDiscovery(ctx); err != nil {
 			logger.Warn("failed to prime discovery cache at startup", zap.Error(err))
@@ -82,7 +93,6 @@ func main() {
 
 	logger.Info("all services initialized",
 		zap.String("wopi_db", cfg.Database.Host),
-		zap.String("nats", cfg.NATS.URL),
 		zap.String("file_service", cfg.FileService.URL),
 	)
 
@@ -100,7 +110,7 @@ type adapters struct {
 	tokenRepo    *postgres.TokenRepository
 	lockRepo     *postgres.LockRepository
 	sessionRepo  *postgres.SessionRepository
-	authSvc      *natsadapter.AuthService
+	authSvc      port.AuthService
 	fileSvc      *fileservice.FileClient
 	discoveryCli *collabora.DiscoveryClient
 }
@@ -129,12 +139,12 @@ func connectNATS(url string) (*nats.Conn, error) {
 	return nats.Connect(url)
 }
 
-func createAdapters(pool *pgxpool.Pool, nc *nats.Conn, cfg *config.Config) adapters {
+func createAdapters(pool *pgxpool.Pool, authSvc port.AuthService, cfg *config.Config) adapters {
 	return adapters{
 		tokenRepo:    postgres.NewTokenRepository(pool),
 		lockRepo:     postgres.NewLockRepository(pool),
 		sessionRepo:  postgres.NewSessionRepository(pool),
-		authSvc:      natsadapter.NewAuthService(nc),
+		authSvc:      authSvc,
 		fileSvc:      fileservice.NewFileClient(cfg.FileService.URL),
 		discoveryCli: collabora.NewDiscoveryClient(cfg.CollaboraURL),
 	}
@@ -177,7 +187,7 @@ func gracefulShutdown(srv *http.Server, cancelApp context.CancelFunc, logger *za
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	logger.Info("shutting down")
-	cancelApp() // cancel app context → stops cleanup goroutine
+	cancelApp()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -195,7 +205,6 @@ func runMigrations(dsn string, logger *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create migrate instance: %w", err)
 	}
-
 	defer func() {
 		srcErr, dbErr := m.Close()
 		if srcErr != nil {

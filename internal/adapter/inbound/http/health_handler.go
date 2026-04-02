@@ -43,7 +43,7 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	if !h.natsConn.IsConnected() {
+	if h.natsConn != nil && !h.natsConn.IsConnected() {
 		h.logger.Warn("nats health check failed")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(healthResponse{Status: "nats_unavailable"})

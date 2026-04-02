@@ -9,6 +9,7 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/test"
 	"go.uber.org/zap"
 
+	natsadapter "github.com/alkem-io/wopi-service/internal/adapter/outbound/nats"
 	"github.com/alkem-io/wopi-service/internal/config"
 )
 
@@ -61,7 +62,7 @@ func TestCreateAdapters(t *testing.T) {
 	}
 
 	// Use nil pool — repos accept DBTX interface, nil won't panic at construction time
-	a := createAdapters(nil, nc, cfg)
+	a := createAdapters(nil, natsadapter.NewAuthService(nc), cfg)
 	if a.tokenRepo == nil {
 		t.Error("tokenRepo is nil")
 	}
@@ -99,7 +100,7 @@ func TestCreateServices(t *testing.T) {
 		BaseURL:      "http://localhost:8080",
 	}
 
-	a := createAdapters(nil, nc, cfg)
+	a := createAdapters(nil, natsadapter.NewAuthService(nc), cfg)
 	s := createServices(a, cfg, zap.NewNop())
 
 	if s.token == nil {
@@ -133,7 +134,7 @@ func TestCreateHandlers(t *testing.T) {
 		BaseURL:      "http://localhost:8080",
 	}
 
-	a := createAdapters(nil, nc, cfg)
+	a := createAdapters(nil, natsadapter.NewAuthService(nc), cfg)
 	s := createServices(a, cfg, zap.NewNop())
 	h := createHandlers(s, nil, nc, zap.NewNop())
 

@@ -7,7 +7,7 @@ integration into the Alkemio platform.
 
 - **Language**: Go 1.26
 - **Database**: PostgreSQL, pgx v5 driver, sqlc for query generation
-- **Authorization**: NATS via authorization-evaluation-service (`auth.evaluate`)
+- **Authorization**: h2c HTTP (default) or NATS (legacy) to authorization-evaluation-service
 - **Identity**: Oathkeeper JWT (`alkemio_actor_id` claim) on token issuance endpoint
 - **File I/O**: file-service-go private endpoints (HTTP, cluster-internal)
 - **Logging**: Zap (structured)
@@ -85,8 +85,9 @@ Database (own, matching oidc-service pattern):
 Alkemio DB (read-only):
 - `ALKEMIO_DATABASE_HOST/PORT/USERNAME/PASSWORD/NAME`
 
-NATS:
-- `NATS_URL`
+Authorization (mutually exclusive — h2c is default):
+- `AUTH_SERVICE_URL` (default: `http://authorization-evaluation-service:6060`)
+- `NATS_URL` (if set, uses NATS transport instead of h2c)
 
 File service:
 - `FILE_SERVICE_URL` (e.g., `http://file-service-go:4003`)
