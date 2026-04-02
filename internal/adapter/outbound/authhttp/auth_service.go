@@ -115,8 +115,11 @@ func (s *AuthService) doRequest(ctx context.Context, payload []byte) (*port.Auth
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode == http.StatusServiceUnavailable {
+	switch {
+	case resp.StatusCode == http.StatusServiceUnavailable:
 		return nil, fmt.Errorf("auth service unavailable (503)")
+	case resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusBadRequest:
+		return nil, fmt.Errorf("auth service returned unexpected status %d", resp.StatusCode)
 	}
 
 	var result evaluateResponse
