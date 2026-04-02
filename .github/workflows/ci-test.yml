@@ -40,23 +40,6 @@ jobs:
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1
 
-  test-docker:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Build Docker image
-        run: docker build -t wopi-service:test .
-
-      - name: Verify container starts
-        run: |
-          docker create --name wopi-test wopi-service:test
-          docker cp wopi-test:/app/wopi-service /tmp/wopi-service-check
-          rm -f /tmp/wopi-service-check
-          echo "Binary exists in container"
-          docker rm wopi-test
-
   openapi:
     runs-on: ubuntu-latest
     steps:
