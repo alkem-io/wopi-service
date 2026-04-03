@@ -1,90 +1,18 @@
-framework:
-    routePatterns:
-        - callRegex: (?i)(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)$
-          recvTypeRegex: ^github.com/go-chi/chi(/v\d)?\.\*?(Router|Mux)$
-          handlerArgIndex: 1
-          methodFromCall: true
-          pathFromArg: true
-          handlerFromArg: true
-    requestBodyPatterns:
-        - callRegex: ^Decode$
-          recvTypeRegex: .*json(iter)?\.\*Decoder
-          typeFromArg: true
-          deref: true
-        - callRegex: ^Unmarshal$
-          recvTypeRegex: json
-          typeArgIndex: 1
-          typeFromArg: true
-          deref: true
-    responsePatterns:
-        - callRegex: ^WriteHeader$
-          recvTypeRegex: ^net/http\.ResponseWriter$
-          typeArgIndex: -1
-          statusFromArg: true
-        - callRegex: ^Write$
-          recvTypeRegex: ^net/http\.ResponseWriter$
-          typeFromArg: true
-          deref: true
-        - callRegex: ^Error$
-          recvTypeRegex: ^net/http$
-          statusArgIndex: 2
-          typeArgIndex: 1
-          statusFromArg: true
-          typeFromArg: true
-          defaultContentType: text/plain; charset=utf-8
-        - callRegex: ^Encode$
-          recvTypeRegex: .*json(iter)?\.\*?Encoder
-          typeFromArg: true
-          deref: true
-    paramPatterns:
-        - callRegex: ^URLParam$
-          recvTypeRegex: ^github\.com/go-chi/chi(/v\d)?$
-          paramIn: path
-          paramArgIndex: 1
-    mountPatterns:
-        - callRegex: ^Mount$
-          routerArgIndex: 1
-          pathFromArg: true
-          routerFromArg: true
-          isMount: true
-        - callRegex: ^Route$
-          routerArgIndex: 1
-          pathFromArg: true
-          routerFromArg: true
-          isMount: true
-typeMapping: []
-externalTypes: []
-overrides: []
-include:
-    files: []
-    packages: []
-    functions: []
-    types: []
-exclude:
-    files: []
-    packages: []
-    functions: []
-    types: []
 defaults:
-    requestContentType: application/json
-    responseContentType: application/json
-    responseStatus: 200
+  requestContentType: application/json
+  responseContentType: application/json
+  responseStatus: 200
 info:
-    title: Alkemio WOPI Service
-    description: |
-        WOPI protocol host service for Collabora Online integration into
-        the Alkemio platform. Provides token issuance, document editing
-        (CheckFileInfo, GetFile, PutFile), locking, and WOPI discovery.
-    version: 1.0.0
-    contact:
-        name: Alkemio Foundation
-        url: https://alkem.io
-        email: info@alkem.io
-    license:
-        name: EUPL-1.2
-        url: https://opensource.org/licenses/EUPL-1.2
-servers: []
-security: []
-securitySchemes: {}
-tags: []
-externalDocs: null
+  title: Alkemio WOPI Service
+  description: |
+    WOPI protocol host service for Collabora Online integration into
+    the Alkemio platform. Provides token issuance, document editing
+    (CheckFileInfo, GetFile, PutFile), locking, and WOPI discovery.
+  version: 1.0.0
+  contact:
+    name: Alkemio Foundation
+    url: https://alkem.io
+    email: info@alkem.io
+  license:
+    name: EUPL-1.2
+    url: https://opensource.org/licenses/EUPL-1.2
