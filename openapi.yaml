@@ -1,4 +1,25 @@
-openapi: 3.1.1
+components:
+  schemas:
+    http.TokenIssuanceResponse:
+      properties:
+        accessToken:
+          type: string
+        accessTokenTTL:
+          type: integer
+        wopiSrc:
+          type: string
+      required:
+        - accessToken
+        - accessTokenTTL
+        - wopiSrc
+      type: object
+    http.tokenRequest:
+      properties:
+        documentId:
+          type: string
+      required:
+        - documentId
+      type: object
 info:
   contact:
     email: info@alkem.io
@@ -13,17 +34,17 @@ info:
     url: https://opensource.org/licenses/EUPL-1.2
   title: Alkemio WOPI Service
   version: 1.0.0
+openapi: 3.1.1
 paths:
   /wopi/files/{fileID}:
     get:
-      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.WOPIHandler.CheckFileInfo
+      operationId: WOPIHandler.CheckFileInfo
       parameters:
         - in: path
           name: fileID
           required: true
           schema:
             type: string
-          x-warning: This parameter is present in the path but not found in the code.
       responses:
         default:
           content:
@@ -32,14 +53,13 @@ paths:
                 type: object
           description: Default response (no response found)
     post:
-      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.WOPIHandler.FileOperation
+      operationId: WOPIHandler.FileOperation
       parameters:
         - in: path
           name: fileID
           required: true
           schema:
             type: string
-          x-warning: This parameter is present in the path but not found in the code.
       responses:
         default:
           content:
@@ -49,14 +69,13 @@ paths:
           description: Default response (no response found)
   /wopi/files/{fileID}/contents:
     get:
-      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.WOPIHandler.GetFile
+      operationId: WOPIHandler.GetFile
       parameters:
         - in: path
           name: fileID
           required: true
           schema:
             type: string
-          x-warning: This parameter is present in the path but not found in the code.
       responses:
         default:
           content:
@@ -65,14 +84,13 @@ paths:
                 type: object
           description: Default response (no response found)
     post:
-      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.WOPIHandler.PutFileContents
+      operationId: WOPIHandler.PutFileContents
       parameters:
         - in: path
           name: fileID
           required: true
           schema:
             type: string
-          x-warning: This parameter is present in the path but not found in the code.
       responses:
         default:
           content:
@@ -82,18 +100,18 @@ paths:
           description: Default response (no response found)
   /wopi/token/:
     post:
-      operationId: github.com/alkem-io/wopi-service/internal/adapter/inbound/http.RouterDeps.TokenHandler.ServeHTTP
+      operationId: TokenHandler.ServeHTTP
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/github.com_alkem-io_wopi-service_internal_adapter_inbound_http.tokenRequest'
+              $ref: '#/components/schemas/http.tokenRequest'
       responses:
         "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/github.com_alkem-io_wopi-service_internal_adapter_inbound_http.TokenIssuanceResponse'
+                $ref: '#/components/schemas/http.TokenIssuanceResponse'
           description: OK
         "400":
           content:
@@ -133,19 +151,3 @@ paths:
           description: Internal Server Error
       tags:
         - /wopi/token
-components:
-  schemas:
-    github.com_alkem-io_wopi-service_internal_adapter_inbound_http.TokenIssuanceResponse:
-      properties:
-        accessToken:
-          type: string
-        accessTokenTTL:
-          type: integer
-        wopiSrc:
-          type: string
-      type: object
-    github.com_alkem-io_wopi-service_internal_adapter_inbound_http.tokenRequest:
-      properties:
-        documentId:
-          type: string
-      type: object
