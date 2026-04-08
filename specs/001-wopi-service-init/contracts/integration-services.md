@@ -36,7 +36,7 @@ Content-Type: application/json
 **Request**:
 ```json
 {
-  "agentId": "<alkemio-actor-uuid>",
+  "actorId": "<alkemio-actor-uuid>",
   "privilege": "read",
   "authorizationPolicyId": "<document-auth-policy-uuid>"
 }
@@ -63,7 +63,7 @@ Content-Type: application/json
 {
   "pattern": "evaluate",
   "data": {
-    "agentId": "<alkemio-actor-uuid>",
+    "actorId": "<alkemio-actor-uuid>",
     "privilege": "read",
     "authorizationPolicyId": "<document-auth-policy-uuid>"
   }

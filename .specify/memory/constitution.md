@@ -285,7 +285,7 @@ The WOPI service integrates with two primary external systems:
 
 **Authorization Evaluation Service** (Go, NATS):
 - Subject: `auth.evaluate`
-- Input: `{agentId, privilege, authorizationPolicyId}`
+- Input: `{actorId, privilege, authorizationPolicyId}`
 - Output: `{allowed, reason}`
 - Used to check READ and UPDATE_CONTENT privileges before issuing
   WOPI access tokens.

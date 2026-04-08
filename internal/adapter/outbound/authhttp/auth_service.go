@@ -49,7 +49,7 @@ func NewAuthService(baseURL string) *AuthService {
 }
 
 type evaluateRequest struct {
-	AgentID               string `json:"agentId"`
+	ActorID               string `json:"actorId"`
 	Privilege             string `json:"privilege"`
 	AuthorizationPolicyID string `json:"authorizationPolicyId"`
 }
@@ -62,9 +62,9 @@ type evaluateResponse struct {
 // CheckPrivilege verifies whether an agent has a privilege on a resource
 // via the authorization-evaluation-service h2c endpoint. Retries on
 // transient connection errors (connection reset, refused, EOF).
-func (s *AuthService) CheckPrivilege(ctx context.Context, agentID, privilege, authorizationPolicyID string) (*port.AuthResult, error) {
+func (s *AuthService) CheckPrivilege(ctx context.Context, actorID, privilege, authorizationPolicyID string) (*port.AuthResult, error) {
 	req := evaluateRequest{
-		AgentID:               agentID,
+		ActorID:               actorID,
 		Privilege:             privilege,
 		AuthorizationPolicyID: authorizationPolicyID,
 	}

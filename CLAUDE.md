@@ -66,7 +66,7 @@ integration into the Alkemio platform.
 
 ## Integration Context
 
-- Auth via NATS `auth.evaluate` (agentId + privilege +
+- Auth via NATS `auth.evaluate` (actorId + privilege +
   authorizationPolicyId)
 - Document metadata from Alkemio PostgreSQL (read-only user)
 - File content via file-service-go private endpoints

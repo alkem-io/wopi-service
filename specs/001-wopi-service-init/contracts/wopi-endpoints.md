@@ -43,7 +43,7 @@ POST /wopi/token
 **Flow**:
 1. Extract `alkemio_actor_id` from JWT
 2. Look up document in Alkemio DB (get authorizationPolicyId)
-3. Call NATS `auth.evaluate` with `{agentId, privilege: "read", authorizationPolicyId}`
+3. Call NATS `auth.evaluate` with `{actorId, privilege: "read", authorizationPolicyId}`
 4. If authorized with `update-content`, set permissions to "read,write"
 5. Generate opaque token, store in DB, return
 

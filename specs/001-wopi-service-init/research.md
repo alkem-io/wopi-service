@@ -69,7 +69,7 @@ has a specific privilege on a resource's authorization policy. This
 eliminates the need for RabbitMQ INFO pattern.
 **Reference**: `/Users/antst/work/alkemio/authorization-evaluation-service`
 **Key details**:
-- Request: `{agentId, privilege, authorizationPolicyId}`
+- Request: `{actorId, privilege, authorizationPolicyId}`
 - Response: `{allowed: bool, reason: string}`
 - Privileges used: `read`, `update-content`
 - Has circuit breaker, retry logic, LRU policy cache built in

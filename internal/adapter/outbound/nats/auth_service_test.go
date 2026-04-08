@@ -34,8 +34,8 @@ func TestAuthService_CheckPrivilege_Allowed(t *testing.T) {
 			return
 		}
 
-		if req.Data.AgentID != "actor-1" {
-			t.Errorf("agentId = %q, want actor-1", req.Data.AgentID)
+		if req.Data.ActorID != "actor-1" {
+			t.Errorf("actorId = %q, want actor-1", req.Data.ActorID)
 		}
 		if req.Data.Privilege != "read" {
 			t.Errorf("privilege = %q, want read", req.Data.Privilege)

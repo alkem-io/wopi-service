@@ -59,7 +59,7 @@
 - [x] T016 [P] Define LockRepository port in `internal/domain/port/lock_repository.go` (Create, FindByFileID, Update, DeleteByFileID, DeleteExpired)
 - [x] T017 [P] Define SessionRepository port in `internal/domain/port/session_repository.go` (Create, FindByFileID, DeleteByTokenID)
 - [x] T018 [P] Define DocumentRepository port in `internal/domain/port/document_repository.go` (FindByID — Alkemio DB read-only)
-- [x] T019 [P] Define AuthService port in `internal/domain/port/auth_service.go` (CheckPrivilege: agentId, privilege, authorizationPolicyId → allowed)
+- [x] T019 [P] Define AuthService port in `internal/domain/port/auth_service.go` (CheckPrivilege: actorId, privilege, authorizationPolicyId → allowed)
 - [x] T020 [P] Define FileService port in `internal/domain/port/file_service.go` (ReadFile: externalID → content, WriteFile: documentId + content → externalID, FileExists: externalID → bool)
 - [x] T021 [P] Define DiscoveryClient port in `internal/domain/port/discovery_client.go` (FetchDiscovery)
 

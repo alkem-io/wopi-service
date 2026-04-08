@@ -70,15 +70,15 @@ func (m *mockFileSvcForToken) FileExists(_ context.Context, _ string) (bool, err
 }
 
 type mockAuthSvc struct {
-	results map[string]bool // key: "agentId:privilege"
+	results map[string]bool // key: "actorId:privilege"
 }
 
 func newMockAuthSvc() *mockAuthSvc {
 	return &mockAuthSvc{results: make(map[string]bool)}
 }
 
-func (m *mockAuthSvc) CheckPrivilege(_ context.Context, agentID, privilege, _ string) (*port.AuthResult, error) {
-	key := agentID + ":" + privilege
+func (m *mockAuthSvc) CheckPrivilege(_ context.Context, actorID, privilege, _ string) (*port.AuthResult, error) {
+	key := actorID + ":" + privilege
 	allowed := m.results[key]
 	return &port.AuthResult{Allowed: allowed, Reason: "mock"}, nil
 }

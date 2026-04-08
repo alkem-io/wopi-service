@@ -29,7 +29,7 @@ type evaluateRequest struct {
 }
 
 type evaluateData struct {
-	AgentID               string `json:"agentId"`
+	ActorID               string `json:"actorId"`
 	Privilege             string `json:"privilege"`
 	AuthorizationPolicyID string `json:"authorizationPolicyId"`
 }
@@ -40,11 +40,11 @@ type evaluateResponse struct {
 }
 
 // CheckPrivilege verifies whether an agent has a privilege on a resource.
-func (s *AuthService) CheckPrivilege(ctx context.Context, agentID, privilege, authorizationPolicyID string) (*port.AuthResult, error) {
+func (s *AuthService) CheckPrivilege(ctx context.Context, actorID, privilege, authorizationPolicyID string) (*port.AuthResult, error) {
 	req := evaluateRequest{
 		Pattern: "evaluate",
 		Data: evaluateData{
-			AgentID:               agentID,
+			ActorID:               actorID,
 			Privilege:             privilege,
 			AuthorizationPolicyID: authorizationPolicyID,
 		},

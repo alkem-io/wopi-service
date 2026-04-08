@@ -42,9 +42,9 @@ type breakerAuthService struct {
 }
 
 // CheckPrivilege delegates to the inner auth service, wrapped by a circuit breaker.
-func (s *breakerAuthService) CheckPrivilege(ctx context.Context, agentID, privilege, authorizationPolicyID string) (*port.AuthResult, error) {
+func (s *breakerAuthService) CheckPrivilege(ctx context.Context, actorID, privilege, authorizationPolicyID string) (*port.AuthResult, error) {
 	result, err := s.cb.Execute(func() (*port.AuthResult, error) {
-		return s.inner.CheckPrivilege(ctx, agentID, privilege, authorizationPolicyID)
+		return s.inner.CheckPrivilege(ctx, actorID, privilege, authorizationPolicyID)
 	})
 	if err != nil {
 		if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {

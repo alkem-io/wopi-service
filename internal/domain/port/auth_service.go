@@ -11,5 +11,5 @@ type AuthResult struct {
 // AuthService checks authorization via the auth-evaluation-service.
 type AuthService interface {
 	// CheckPrivilege verifies whether an agent has a privilege on a resource.
-	CheckPrivilege(ctx context.Context, agentID, privilege, authorizationPolicyID string) (*AuthResult, error)
+	CheckPrivilege(ctx context.Context, actorID, privilege, authorizationPolicyID string) (*AuthResult, error)
 }
