@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: alkemio-wopi-service
+  labels:
+    app: alkemio-wopi-service
+spec:
+  selector:
+    app: alkemio-wopi-service
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http

@@ -1,0 +1,170 @@
+components:
+  schemas:
+    http.TokenIssuanceResponse:
+      properties:
+        accessToken:
+          type: string
+        accessTokenTTL:
+          type: integer
+        wopiSrc:
+          type: string
+      required:
+        - accessToken
+        - accessTokenTTL
+        - wopiSrc
+      type: object
+    http.healthResponse:
+      properties:
+        status:
+          type: string
+      required:
+        - status
+      type: object
+    http.tokenRequest:
+      properties:
+        documentId:
+          type: string
+      required:
+        - documentId
+      type: object
+info:
+  contact:
+    email: info@alkem.io
+    name: Alkemio Foundation
+    url: https://alkem.io
+  description: |
+    WOPI protocol host service for Collabora Online integration into
+    the Alkemio platform. Provides token issuance, document editing
+    (CheckFileInfo, GetFile, PutFile), locking, and WOPI discovery.
+  license:
+    name: EUPL-1.2
+    url: https://opensource.org/licenses/EUPL-1.2
+  title: Alkemio WOPI Service
+  version: 1.0.0
+openapi: 3.1.1
+paths:
+  /live:
+    post:
+      operationId: http.LiveHandler
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/http.healthResponse'
+          description: OK
+  /wopi/files/{fileID}:
+    get:
+      operationId: WOPIHandler.CheckFileInfo
+      parameters:
+        - in: path
+          name: fileID
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Default response (no response found)
+    post:
+      operationId: WOPIHandler.FileOperation
+      parameters:
+        - in: path
+          name: fileID
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Default response (no response found)
+  /wopi/files/{fileID}/contents:
+    get:
+      operationId: WOPIHandler.GetFile
+      parameters:
+        - in: path
+          name: fileID
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Default response (no response found)
+    post:
+      operationId: WOPIHandler.PutFileContents
+      parameters:
+        - in: path
+          name: fileID
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Default response (no response found)
+  /wopi/token/:
+    post:
+      operationId: TokenHandler.ServeHTTP
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/http.tokenRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/http.TokenIssuanceResponse'
+          description: OK
+        "400":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Bad Request
+        "401":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Unauthorized
+        "403":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Forbidden
+        "404":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Not Found
+        "405":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Method Not Allowed
+        "500":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Internal Server Error
+      tags:
+        - /wopi/token

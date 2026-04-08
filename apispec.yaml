@@ -1,0 +1,18 @@
+defaults:
+  requestContentType: application/json
+  responseContentType: application/json
+  responseStatus: 200
+info:
+  title: Alkemio WOPI Service
+  description: |
+    WOPI protocol host service for Collabora Online integration into
+    the Alkemio platform. Provides token issuance, document editing
+    (CheckFileInfo, GetFile, PutFile), locking, and WOPI discovery.
+  version: 1.0.0
+  contact:
+    name: Alkemio Foundation
+    url: https://alkem.io
+    email: info@alkem.io
+  license:
+    name: EUPL-1.2
+    url: https://opensource.org/licenses/EUPL-1.2
