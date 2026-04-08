@@ -102,7 +102,7 @@ MIME types and editor action URLs.
 
 - **FR-001**: System MUST expose WOPI REST endpoints at `/wopi/files/{file_id}` and `/wopi/files/{file_id}/contents` following the WOPI protocol specification.
 - **FR-002**: System MUST validate access tokens on every WOPI request and reject unauthorized requests with a 401 status.
-- **FR-003**: System MUST validate WOPI proof signatures from Collabora on every request to confirm request authenticity.
+- **FR-003**: System MUST validate WOPI proof signatures from Collabora on every request when proof validation is enabled (see FR-015).
 - **FR-004**: System MUST implement CheckFileInfo returning file metadata (filename, size, owner, user permissions, supported WOPI features) looked up from file-service-go via `GET /internal/document/:id/meta`.
 - **FR-005**: System MUST implement GetFile returning binary file content retrieved from file-service-go via `GET /internal/document/:id/content`.
 - **FR-006**: System MUST implement PutFile persisting updated file content via file-service-go's store-and-link endpoint (`PUT /internal/document/:id/content`).

@@ -255,5 +255,5 @@ and editor action URLs from Collabora).
 **Response** `503 Service Unavailable`: Collabora unreachable and
 no cached data.
 
-**Cache**: Discovery XML cached for 12-24 hours. Re-fetched on
+**Cache**: Discovery XML cached for 12 hours. Re-fetched on
 proof key validation failure.
