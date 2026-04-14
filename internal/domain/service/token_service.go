@@ -155,7 +155,7 @@ func (s *TokenService) resolveEditorURL(ctx context.Context, mimeType, wopiSrc, 
 
 	// Ensure discovery cache is populated (lazy fetch on first call, cached 12h)
 	if _, err := s.discoverySvc.GetDiscovery(ctx); err != nil {
-		return "", fmt.Errorf("fetch discovery: %w", err)
+		return "", err
 	}
 
 	ext, err := model.ExtensionForMIME(mimeType)
