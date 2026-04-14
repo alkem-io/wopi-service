@@ -145,6 +145,10 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 
 // resolveEditorURL builds the Collabora editor URL for a document.
 func (s *TokenService) resolveEditorURL(mimeType, wopiSrc, accessToken string, ttlMs int64, canWrite bool) (string, error) {
+	if s.discoverySvc == nil {
+		return "", ErrNoDiscoveryData
+	}
+
 	ext, err := model.ExtensionForMIME(mimeType)
 	if err != nil {
 		return "", err
@@ -155,20 +159,22 @@ func (s *TokenService) resolveEditorURL(mimeType, wopiSrc, accessToken string, t
 		return "", err
 	}
 
-	return buildEditorURL(action.URLSrc, s.baseURL, wopiSrc, accessToken, ttlMs), nil
+	return buildEditorURL(action.URLSrc, s.baseURL, wopiSrc, accessToken, ttlMs)
 }
 
 // buildEditorURL constructs the final editor URL by replacing the Collabora
 // internal host with WOPI_BASE_URL and appending WOPI parameters.
-func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken string, ttlMs int64) string {
+func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken string, ttlMs int64) (string, error) {
 	baseURL = strings.TrimSuffix(baseURL, "/")
-	// Extract path from urlsrc (replace internal Collabora host with baseURL)
-	editorPath := urlSrc
-	if parsed, err := url.Parse(urlSrc); err == nil {
-		editorPath = parsed.Path
-		if parsed.RawQuery != "" {
-			editorPath += "?" + parsed.RawQuery
-		}
+
+	parsed, err := url.Parse(urlSrc)
+	if err != nil {
+		return "", fmt.Errorf("malformed discovery urlsrc %q: %w", urlSrc, err)
+	}
+
+	editorPath := parsed.Path
+	if parsed.RawQuery != "" {
+		editorPath += "?" + parsed.RawQuery
 	}
 
 	// Strip WOPI template placeholders: <name=VALUE&> or <name&>
@@ -185,7 +191,7 @@ func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken string, ttlMs int64) s
 		url.QueryEscape(wopiSrc),
 		url.QueryEscape(accessToken),
 		ttlMs,
-	)
+	), nil
 }
 
 // stripWOPIPlaceholders removes WOPI urlsrc template placeholders.
