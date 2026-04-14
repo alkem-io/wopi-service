@@ -161,6 +161,7 @@ func (s *TokenService) resolveEditorURL(mimeType, wopiSrc, accessToken string, t
 // buildEditorURL constructs the final editor URL by replacing the Collabora
 // internal host with WOPI_BASE_URL and appending WOPI parameters.
 func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken string, ttlMs int64) string {
+	baseURL = strings.TrimSuffix(baseURL, "/")
 	// Extract path from urlsrc (replace internal Collabora host with baseURL)
 	editorPath := urlSrc
 	if parsed, err := url.Parse(urlSrc); err == nil {
