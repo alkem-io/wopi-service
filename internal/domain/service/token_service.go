@@ -49,7 +49,7 @@ func NewTokenService(
 		sessionRepo:  sessionRepo,
 		discoverySvc: discoverySvc,
 		secret:       secret,
-		baseURL:      baseURL,
+		baseURL:      strings.TrimSuffix(baseURL, "/"),
 		logger:       logger,
 	}
 }
@@ -165,8 +165,6 @@ func (s *TokenService) resolveEditorURL(mimeType, wopiSrc, accessToken string, t
 // buildEditorURL constructs the final editor URL by replacing the Collabora
 // internal host with WOPI_BASE_URL and appending WOPI parameters.
 func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken string, ttlMs int64) (string, error) {
-	baseURL = strings.TrimSuffix(baseURL, "/")
-
 	parsed, err := url.Parse(urlSrc)
 	if err != nil {
 		return "", fmt.Errorf("malformed discovery urlsrc %q: %w", urlSrc, err)
