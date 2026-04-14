@@ -26,6 +26,7 @@ func TestTokenRepository_Create(t *testing.T) {
 		Token:       "test-token",
 		FileID:      "file-1",
 		ActorID:     "actor-1",
+		ActorName:   "Jane Doe",
 		Permissions: "read,write",
 		ExpiresAt:   time.Now().Add(8 * time.Hour),
 		CreatedAt:   time.Now(),
@@ -92,6 +93,9 @@ func TestTokenRepository_FindByToken_Found(t *testing.T) {
 	}
 	if result.ActorID != "actor-1" {
 		t.Errorf("ActorID = %q", result.ActorID)
+	}
+	if result.ActorName != "Jane Doe" {
+		t.Errorf("ActorName = %q, want Jane Doe", result.ActorName)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)

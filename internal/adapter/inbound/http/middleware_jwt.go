@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -108,7 +109,7 @@ func (c *jwtClaims) ActorDisplayName() string {
 func extractClaimsFromJWT(tokenString string) (*jwtClaims, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
-		return nil, nil
+		return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])

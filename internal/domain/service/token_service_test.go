@@ -143,8 +143,9 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 	authSvc.results[actorID+":read"] = true
 	authSvc.results[actorID+":update-content"] = true
 
+	tokenRepo := newMockTokenRepo()
 	svc := NewTokenService(
-		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
+		tokenRepo, fileSvc, authSvc, &mockSessionRepo{},
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -161,6 +162,15 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 	}
 	if result.TTL == 0 {
 		t.Error("expected non-zero TTL")
+	}
+
+	// Verify actor name was stored in the token
+	stored := tokenRepo.tokens[result.AccessToken]
+	if stored == nil {
+		t.Fatal("token not stored")
+	}
+	if stored.ActorName != "Test User" {
+		t.Errorf("ActorName = %q, want Test User", stored.ActorName)
 	}
 }
 
