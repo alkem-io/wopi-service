@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -35,7 +36,7 @@ func NewFileClient(baseURL string) *FileClient {
 		},
 	}
 	return &FileClient{
-		baseURL:    baseURL,
+		baseURL:    strings.TrimSuffix(baseURL, "/"),
 		httpClient: &http.Client{Transport: transport, Timeout: 30 * time.Second},
 	}
 }
