@@ -16,6 +16,7 @@ type AccessToken struct {
 	Permissions string             `json:"permissions"`
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ActorName   string             `json:"actor_name"`
 }
 
 type Lock struct {

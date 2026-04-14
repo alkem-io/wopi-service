@@ -49,7 +49,8 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.tokenSvc.IssueToken(r.Context(), actorID, req.DocumentID)
+	actorName := ActorNameFromContext(r.Context())
+	result, err := h.tokenSvc.IssueToken(r.Context(), actorID, actorName, req.DocumentID)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrDocumentNotFound):

@@ -26,6 +26,7 @@ func TestTokenRepository_Create(t *testing.T) {
 		Token:       "test-token",
 		FileID:      "file-1",
 		ActorID:     "actor-1",
+		ActorName:   "Jane Doe",
 		Permissions: "read,write",
 		ExpiresAt:   time.Now().Add(8 * time.Hour),
 		CreatedAt:   time.Now(),
@@ -37,6 +38,7 @@ func TestTokenRepository_Create(t *testing.T) {
 			token.Token,
 			token.FileID,
 			token.ActorID,
+			token.ActorName,
 			token.Permissions,
 			pgxmock.AnyArg(), // expires_at
 			pgxmock.AnyArg(), // created_at
@@ -63,12 +65,13 @@ func TestTokenRepository_FindByToken_Found(t *testing.T) {
 	tokenID := uuid.New()
 	now := time.Now()
 
-	rows := pgxmock.NewRows([]string{"id", "token", "file_id", "actor_id", "permissions", "expires_at", "created_at"}).
+	rows := pgxmock.NewRows([]string{"id", "token", "file_id", "actor_id", "actor_name", "permissions", "expires_at", "created_at"}).
 		AddRow(
 			pgtype.UUID{Bytes: tokenID, Valid: true},
 			"found-token",
 			"file-1",
 			"actor-1",
+			"Jane Doe",
 			"read",
 			pgtype.Timestamptz{Time: now.Add(8 * time.Hour), Valid: true},
 			pgtype.Timestamptz{Time: now, Valid: true},
@@ -90,6 +93,9 @@ func TestTokenRepository_FindByToken_Found(t *testing.T) {
 	}
 	if result.ActorID != "actor-1" {
 		t.Errorf("ActorID = %q", result.ActorID)
+	}
+	if result.ActorName != "Jane Doe" {
+		t.Errorf("ActorName = %q, want Jane Doe", result.ActorName)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)

@@ -143,13 +143,14 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 	authSvc.results[actorID+":read"] = true
 	authSvc.results[actorID+":update-content"] = true
 
+	tokenRepo := newMockTokenRepo()
 	svc := NewTokenService(
-		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
+		tokenRepo, fileSvc, authSvc, &mockSessionRepo{},
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	result, err := svc.IssueToken(context.Background(), actorID, docID)
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,6 +162,15 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 	}
 	if result.TTL == 0 {
 		t.Error("expected non-zero TTL")
+	}
+
+	// Verify actor name was stored in the token
+	stored := tokenRepo.tokens[result.AccessToken]
+	if stored == nil {
+		t.Fatal("token not stored")
+	}
+	if stored.ActorName != "Test User" {
+		t.Errorf("ActorName = %q, want Test User", stored.ActorName)
 	}
 }
 
@@ -186,7 +196,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	result, err := svc.IssueToken(context.Background(), actorID, docID)
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -207,7 +217,7 @@ func TestIssueToken_DocumentNotFound(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	_, err := svc.IssueToken(context.Background(), "actor", "nonexistent")
+	_, err := svc.IssueToken(context.Background(), "actor", "Test User", "nonexistent")
 	if !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("expected ErrDocumentNotFound, got %v", err)
 	}
@@ -231,7 +241,7 @@ func TestIssueToken_NotAuthorized(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	_, err := svc.IssueToken(context.Background(), "actor", docID)
+	_, err := svc.IssueToken(context.Background(), "actor", "Test User", docID)
 	if !errors.Is(err, ErrNotAuthorized) {
 		t.Errorf("expected ErrNotAuthorized, got %v", err)
 	}

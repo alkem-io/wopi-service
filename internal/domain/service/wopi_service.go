@@ -63,6 +63,7 @@ func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToke
 		OwnerID:                 token.ActorID,
 		Size:                    doc.Size,
 		UserID:                  token.ActorID,
+		UserFriendlyName:        token.ActorName,
 		Version:                 doc.ExternalID,
 		UserCanWrite:            canWrite,
 		SupportsLocks:           true,

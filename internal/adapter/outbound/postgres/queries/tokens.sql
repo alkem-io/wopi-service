@@ -1,9 +1,9 @@
 -- name: InsertToken :exec
-INSERT INTO access_tokens (id, token, file_id, actor_id, permissions, expires_at, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7);
+INSERT INTO access_tokens (id, token, file_id, actor_id, actor_name, permissions, expires_at, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
 -- name: FindByToken :one
-SELECT id, token, file_id, actor_id, permissions, expires_at, created_at
+SELECT id, token, file_id, actor_id, actor_name, permissions, expires_at, created_at
 FROM access_tokens
 WHERE token = $1;
 

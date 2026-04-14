@@ -66,7 +66,7 @@ type TokenIssuanceResult struct {
 }
 
 // IssueToken authenticates and authorizes an actor, then creates a WOPI access token.
-func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID string) (*TokenIssuanceResult, error) {
+func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, documentID string) (*TokenIssuanceResult, error) {
 	doc, err := s.fileSvc.FindByID(ctx, documentID)
 	if err != nil {
 		return nil, fmt.Errorf("lookup document: %w", err)
@@ -118,6 +118,7 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 		Token:       token,
 		FileID:      documentID,
 		ActorID:     actorID,
+		ActorName:   actorName,
 		Permissions: permissions,
 		ExpiresAt:   expiresAt,
 		CreatedAt:   now,

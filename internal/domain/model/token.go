@@ -13,6 +13,7 @@ type AccessToken struct {
 	Token       string
 	FileID      string
 	ActorID     string
+	ActorName   string
 	Permissions string
 	ExpiresAt   time.Time
 	CreatedAt   time.Time
