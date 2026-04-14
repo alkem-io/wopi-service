@@ -4,28 +4,39 @@ package fileservice
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
+
+	"golang.org/x/net/http2"
 
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
 
 // FileClient implements port.FileService and port.DocumentRepository
-// via file-service-go's private endpoints.
+// via file-service-go's private endpoints using h2c (HTTP/2 cleartext).
 type FileClient struct {
 	baseURL    string
 	httpClient *http.Client
 }
 
-// NewFileClient creates a new FileClient.
+// NewFileClient creates a new h2c-capable FileClient.
 func NewFileClient(baseURL string) *FileClient {
+	transport := &http2.Transport{
+		AllowHTTP: true,
+		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		},
+	}
 	return &FileClient{
 		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Transport: transport, Timeout: 30 * time.Second},
 	}
 }
 
