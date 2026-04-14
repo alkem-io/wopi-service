@@ -98,6 +98,31 @@ func (m *mockSessionRepo) FindByFileID(_ context.Context, _ string) ([]model.WOP
 
 func (m *mockSessionRepo) DeleteByTokenID(_ context.Context, _ string) error { return nil }
 
+// testDiscoverySvc creates a DiscoveryService with mock discovery data for tests.
+func testDiscoverySvc() *DiscoveryService {
+	data := &port.DiscoveryData{
+		Actions: []port.DiscoveryAction{
+			{App: "Writer", Name: "edit", Ext: "docx", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
+			{App: "Writer", Name: "view", Ext: "docx", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
+			{App: "Calc", Name: "edit", Ext: "xlsx", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
+			{App: "Impress", Name: "edit", Ext: "pptx", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
+			{App: "Writer", Name: "edit", Ext: "odt", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
+		},
+	}
+	client := &mockDiscoveryClientForToken{data: data}
+	svc := NewDiscoveryService(client, zap.NewNop())
+	_, _ = svc.GetDiscovery(context.Background())
+	return svc
+}
+
+type mockDiscoveryClientForToken struct {
+	data *port.DiscoveryData
+}
+
+func (m *mockDiscoveryClientForToken) FetchDiscovery(_ context.Context) (*port.DiscoveryData, error) {
+	return m.data, nil
+}
+
 // --- Tests ---
 
 func TestIssueToken_Success_ReadWrite(t *testing.T) {
@@ -120,6 +145,7 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 
 	svc := NewTokenService(
 		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
+		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -146,6 +172,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 	fileSvc.docs[docID] = &model.Document{
 		ID:                    docID,
 		AuthorizationPolicyID: uuid.New().String(),
+		MimeType:              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	}
 
 	authSvc := newMockAuthSvc()
@@ -155,6 +182,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 	tokenRepo := newMockTokenRepo()
 	svc := NewTokenService(
 		tokenRepo, fileSvc, authSvc, &mockSessionRepo{},
+		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -175,6 +203,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 func TestIssueToken_DocumentNotFound(t *testing.T) {
 	svc := NewTokenService(
 		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
+		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -190,6 +219,7 @@ func TestIssueToken_NotAuthorized(t *testing.T) {
 	fileSvc.docs[docID] = &model.Document{
 		ID:                    docID,
 		AuthorizationPolicyID: uuid.New().String(),
+		MimeType:              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	}
 
 	authSvc := newMockAuthSvc()
@@ -197,6 +227,7 @@ func TestIssueToken_NotAuthorized(t *testing.T) {
 
 	svc := NewTokenService(
 		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
+		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -221,6 +252,7 @@ func TestValidateToken_Valid(t *testing.T) {
 
 	svc := NewTokenService(
 		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
+		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -245,6 +277,7 @@ func TestValidateToken_Expired(t *testing.T) {
 
 	svc := NewTokenService(
 		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
+		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 
@@ -260,6 +293,7 @@ func TestValidateToken_Expired(t *testing.T) {
 func TestValidateToken_NotFound(t *testing.T) {
 	svc := NewTokenService(
 		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
+		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 

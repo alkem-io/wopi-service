@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/service"
 )
 
@@ -55,6 +56,12 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
 		case errors.Is(err, service.ErrNotAuthorized):
 			http.Error(w, `{"error":"not authorized"}`, http.StatusForbidden)
+		case errors.Is(err, model.ErrUnsupportedMIME):
+			http.Error(w, `{"error":"document type not supported for editing"}`, http.StatusUnprocessableEntity)
+		case errors.Is(err, service.ErrUnsupportedExtension):
+			http.Error(w, `{"error":"document type not supported for editing"}`, http.StatusUnprocessableEntity)
+		case errors.Is(err, service.ErrNoDiscoveryData):
+			http.Error(w, `{"error":"editor discovery unavailable"}`, http.StatusServiceUnavailable)
 		default:
 			h.logger.Error("token issuance failed", zap.Error(err))
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
@@ -66,5 +73,6 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		AccessToken: result.AccessToken,
 		TTL:         result.TTL,
 		WOPISrc:     result.WOPISrc,
+		EditorURL:   result.EditorURL,
 	}.Render(w)
 }

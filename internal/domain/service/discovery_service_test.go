@@ -128,3 +128,89 @@ func TestInvalidateAndRefresh(t *testing.T) {
 		t.Errorf("expected pptx after refresh, got %s", result.Actions[0].Ext)
 	}
 }
+
+// --- FindActionByExtension tests ---
+
+func TestFindActionByExtension_EditPreferred(t *testing.T) {
+	data := &port.DiscoveryData{
+		Actions: []port.DiscoveryAction{
+			{App: "Writer", Name: "view", Ext: "docx", URLSrc: "http://collabora/view"},
+			{App: "Writer", Name: "edit", Ext: "docx", URLSrc: "http://collabora/edit"},
+		},
+	}
+	client := &mockDiscoveryClient{data: data}
+	svc := NewDiscoveryService(client, zap.NewNop())
+	_, _ = svc.GetDiscovery(context.Background())
+
+	action, err := svc.FindActionByExtension("docx", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if action.Name != "edit" {
+		t.Errorf("expected edit action, got %s", action.Name)
+	}
+}
+
+func TestFindActionByExtension_ViewPreferred(t *testing.T) {
+	data := &port.DiscoveryData{
+		Actions: []port.DiscoveryAction{
+			{App: "Writer", Name: "edit", Ext: "docx", URLSrc: "http://collabora/edit"},
+			{App: "Writer", Name: "view", Ext: "docx", URLSrc: "http://collabora/view"},
+		},
+	}
+	client := &mockDiscoveryClient{data: data}
+	svc := NewDiscoveryService(client, zap.NewNop())
+	_, _ = svc.GetDiscovery(context.Background())
+
+	action, err := svc.FindActionByExtension("docx", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if action.Name != "view" {
+		t.Errorf("expected view action, got %s", action.Name)
+	}
+}
+
+func TestFindActionByExtension_FallbackToView(t *testing.T) {
+	data := &port.DiscoveryData{
+		Actions: []port.DiscoveryAction{
+			{App: "Writer", Name: "view", Ext: "pdf", URLSrc: "http://collabora/view"},
+		},
+	}
+	client := &mockDiscoveryClient{data: data}
+	svc := NewDiscoveryService(client, zap.NewNop())
+	_, _ = svc.GetDiscovery(context.Background())
+
+	action, err := svc.FindActionByExtension("pdf", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if action.Name != "view" {
+		t.Errorf("expected view fallback, got %s", action.Name)
+	}
+}
+
+func TestFindActionByExtension_UnknownExtension(t *testing.T) {
+	data := &port.DiscoveryData{
+		Actions: []port.DiscoveryAction{
+			{App: "Writer", Name: "edit", Ext: "docx", URLSrc: "http://collabora/edit"},
+		},
+	}
+	client := &mockDiscoveryClient{data: data}
+	svc := NewDiscoveryService(client, zap.NewNop())
+	_, _ = svc.GetDiscovery(context.Background())
+
+	_, err := svc.FindActionByExtension("xyz", true)
+	if !errors.Is(err, ErrUnsupportedExtension) {
+		t.Errorf("expected ErrUnsupportedExtension, got %v", err)
+	}
+}
+
+func TestFindActionByExtension_NoCache(t *testing.T) {
+	svc := NewDiscoveryService(&mockDiscoveryClient{err: errors.New("down")}, zap.NewNop())
+
+	_, err := svc.FindActionByExtension("docx", true)
+	if !errors.Is(err, ErrNoDiscoveryData) {
+		t.Errorf("expected ErrNoDiscoveryData, got %v", err)
+	}
+}

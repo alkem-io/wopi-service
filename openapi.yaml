@@ -6,12 +6,15 @@ components:
           type: string
         accessTokenTTL:
           type: integer
+        editorUrl:
+          type: string
         wopiSrc:
           type: string
       required:
         - accessToken
         - accessTokenTTL
         - wopiSrc
+        - editorUrl
       type: object
     http.healthResponse:
       properties:
@@ -160,11 +163,23 @@ paths:
               schema:
                 type: string
           description: Method Not Allowed
+        "422":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Unprocessable Entity
         "500":
           content:
             text/plain; charset=utf-8:
               schema:
                 type: string
           description: Internal Server Error
+        "503":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Service Unavailable
       tags:
         - /wopi/token

@@ -56,6 +56,51 @@ func (s *DiscoveryService) InvalidateAndRefresh(ctx context.Context) (*port.Disc
 	return s.refresh(ctx)
 }
 
+// ErrNoDiscoveryData is returned when the discovery cache is empty.
+var ErrNoDiscoveryData = fmt.Errorf("no discovery data available")
+
+// ErrUnsupportedExtension is returned when no editor action matches the extension.
+var ErrUnsupportedExtension = fmt.Errorf("no editor action for extension")
+
+// FindActionByExtension looks up a cached discovery action for the given file extension.
+// When preferEdit is true, the "edit" action is preferred; otherwise "view" is preferred.
+// Falls back to whichever action is available.
+func (s *DiscoveryService) FindActionByExtension(ext string, preferEdit bool) (*port.DiscoveryAction, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.cached == nil {
+		return nil, ErrNoDiscoveryData
+	}
+
+	preferred := "edit"
+	fallback := "view"
+	if !preferEdit {
+		preferred = "view"
+		fallback = "edit"
+	}
+
+	var fallbackAction *port.DiscoveryAction
+	for i := range s.cached.Actions {
+		a := &s.cached.Actions[i]
+		if a.Ext != ext {
+			continue
+		}
+		if a.Name == preferred {
+			return a, nil
+		}
+		if a.Name == fallback {
+			fallbackAction = a
+		}
+	}
+
+	if fallbackAction != nil {
+		return fallbackAction, nil
+	}
+
+	return nil, ErrUnsupportedExtension
+}
+
 // GetProofKeys returns the cached proof keys, or nil if no discovery data is available.
 func (s *DiscoveryService) GetProofKeys() *port.ProofKey {
 	s.mu.RLock()
