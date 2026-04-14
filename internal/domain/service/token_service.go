@@ -105,7 +105,7 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 	// Resolve editor URL BEFORE persisting token/session to avoid orphaned
 	// rows if the MIME type is unsupported or discovery is unavailable.
 	canWrite := permissions == "read,write"
-	editorURL, err := s.resolveEditorURL(doc.MimeType, wopiSrc, token, ttlMs, canWrite)
+	editorURL, err := s.resolveEditorURL(ctx, doc.MimeType, wopiSrc, token, ttlMs, canWrite)
 	if err != nil {
 		return nil, fmt.Errorf("resolve editor URL: %w", err)
 	}
@@ -144,9 +144,15 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 }
 
 // resolveEditorURL builds the Collabora editor URL for a document.
-func (s *TokenService) resolveEditorURL(mimeType, wopiSrc, accessToken string, ttlMs int64, canWrite bool) (string, error) {
+// Ensures discovery cache is warm before looking up the editor action.
+func (s *TokenService) resolveEditorURL(ctx context.Context, mimeType, wopiSrc, accessToken string, ttlMs int64, canWrite bool) (string, error) {
 	if s.discoverySvc == nil {
 		return "", ErrNoDiscoveryData
+	}
+
+	// Ensure discovery cache is populated (lazy fetch on first call, cached 12h)
+	if _, err := s.discoverySvc.GetDiscovery(ctx); err != nil {
+		return "", fmt.Errorf("fetch discovery: %w", err)
 	}
 
 	ext, err := model.ExtensionForMIME(mimeType)

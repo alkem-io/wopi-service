@@ -84,10 +84,9 @@ func main() {
 
 	go services.cleanup.Start(ctx)
 
-	if cfg.ProofValidation {
-		if _, err := services.discovery.GetDiscovery(ctx); err != nil {
-			logger.Warn("failed to prime discovery cache at startup", zap.Error(err))
-		}
+	// Prime discovery cache — needed for editor URL resolution and proof validation
+	if _, err := services.discovery.GetDiscovery(ctx); err != nil {
+		logger.Warn("failed to prime discovery cache at startup", zap.Error(err))
 	}
 
 	handlers := createHandlers(services, wopiPool, nc, logger)
