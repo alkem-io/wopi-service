@@ -84,10 +84,9 @@ func main() {
 
 	go services.cleanup.Start(ctx)
 
-	if cfg.ProofValidation {
-		if _, err := services.discovery.GetDiscovery(ctx); err != nil {
-			logger.Warn("failed to prime discovery cache at startup", zap.Error(err))
-		}
+	// Prime discovery cache — needed for editor URL resolution and proof validation
+	if _, err := services.discovery.GetDiscovery(ctx); err != nil {
+		logger.Warn("failed to prime discovery cache at startup", zap.Error(err))
 	}
 
 	handlers := createHandlers(services, wopiPool, nc, logger)
@@ -165,7 +164,7 @@ func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services
 	discoverySvc := service.NewDiscoveryService(a.discoveryCli, logger)
 	tokenSvc := service.NewTokenService(
 		a.tokenRepo, a.fileSvc, a.authSvc, a.sessionRepo,
-		discoverySvc, cfg.TokenSecret, cfg.BaseURL, logger,
+		discoverySvc, cfg.TokenSecret, cfg.BaseURL, cfg.CallbackURL, logger,
 	)
 	return services{
 		token:     tokenSvc,

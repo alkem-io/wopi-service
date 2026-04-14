@@ -25,7 +25,8 @@ type Config struct {
 	CollaboraURL string
 
 	// Service
-	BaseURL         string
+	BaseURL         string // Browser-facing URL (editor iframe src)
+	CallbackURL     string // Collabora server-side callback URL (WOPISrc); defaults to BaseURL
 	TokenSecret     string
 	ServerPort      string
 	ProofValidation bool
@@ -125,8 +126,14 @@ func Load() (*Config, error) {
 		},
 		CollaboraURL: getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
 		BaseURL:      getEnv("WOPI_BASE_URL", "http://localhost:8080"),
+		CallbackURL:  getEnv("WOPI_CALLBACK_URL", ""),
 		TokenSecret:  getEnv("WOPI_TOKEN_SECRET", ""),
 		ServerPort:   getEnv("WOPI_SERVER_PORT", "8080"),
+	}
+
+	// Default CallbackURL to BaseURL when not explicitly set
+	if cfg.CallbackURL == "" {
+		cfg.CallbackURL = cfg.BaseURL
 	}
 
 	if cfg.TokenSecret == "" {

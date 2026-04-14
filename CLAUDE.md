@@ -98,6 +98,8 @@ File service:
 Service:
 - `WOPI_COLLABORA_URL`, `WOPI_BASE_URL`, `WOPI_TOKEN_SECRET`,
   `WOPI_SERVER_PORT`
+- `WOPI_CALLBACK_URL` — Collabora callback URL for WOPISrc
+  (defaults to WOPI_BASE_URL if not set)
 
 ## Full Constitution
 

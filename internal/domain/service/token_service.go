@@ -27,7 +27,8 @@ type TokenService struct {
 	sessionRepo  port.SessionRepository
 	discoverySvc *DiscoveryService
 	secret       string
-	baseURL      string
+	baseURL      string // Browser-facing URL (editor iframe src)
+	callbackURL  string // Collabora server-side callback URL (WOPISrc)
 	logger       *zap.Logger
 }
 
@@ -40,6 +41,7 @@ func NewTokenService(
 	discoverySvc *DiscoveryService,
 	secret string,
 	baseURL string,
+	callbackURL string,
 	logger *zap.Logger,
 ) *TokenService {
 	return &TokenService{
@@ -50,6 +52,7 @@ func NewTokenService(
 		discoverySvc: discoverySvc,
 		secret:       secret,
 		baseURL:      strings.TrimSuffix(baseURL, "/"),
+		callbackURL:  strings.TrimSuffix(callbackURL, "/"),
 		logger:       logger,
 	}
 }
@@ -99,13 +102,13 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 
 	now := time.Now()
 	expiresAt := now.Add(defaultTokenTTL)
-	wopiSrc := fmt.Sprintf("%s/wopi/files/%s", s.baseURL, documentID)
+	wopiSrc := fmt.Sprintf("%s/wopi/files/%s", s.callbackURL, documentID)
 	ttlMs := expiresAt.UnixMilli()
 
 	// Resolve editor URL BEFORE persisting token/session to avoid orphaned
 	// rows if the MIME type is unsupported or discovery is unavailable.
 	canWrite := permissions == "read,write"
-	editorURL, err := s.resolveEditorURL(doc.MimeType, wopiSrc, token, ttlMs, canWrite)
+	editorURL, err := s.resolveEditorURL(ctx, doc.MimeType, wopiSrc, token, ttlMs, canWrite)
 	if err != nil {
 		return nil, fmt.Errorf("resolve editor URL: %w", err)
 	}
@@ -144,9 +147,15 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 }
 
 // resolveEditorURL builds the Collabora editor URL for a document.
-func (s *TokenService) resolveEditorURL(mimeType, wopiSrc, accessToken string, ttlMs int64, canWrite bool) (string, error) {
+// Ensures discovery cache is warm before looking up the editor action.
+func (s *TokenService) resolveEditorURL(ctx context.Context, mimeType, wopiSrc, accessToken string, ttlMs int64, canWrite bool) (string, error) {
 	if s.discoverySvc == nil {
 		return "", ErrNoDiscoveryData
+	}
+
+	// Ensure discovery cache is populated (lazy fetch on first call, cached 12h)
+	if _, err := s.discoverySvc.GetDiscovery(ctx); err != nil {
+		return "", err
 	}
 
 	ext, err := model.ExtensionForMIME(mimeType)

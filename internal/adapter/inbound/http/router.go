@@ -28,6 +28,7 @@ func NewRouter(deps RouterDeps) chi.Router {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(RequestLogger(deps.Logger))
 
 	// Health checks — no auth
 	r.Handle("/health", deps.HealthHandler) // readiness: checks DB + NATS

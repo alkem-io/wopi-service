@@ -146,7 +146,7 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 	svc := NewTokenService(
 		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
 		testDiscoverySvc(),
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
 	result, err := svc.IssueToken(context.Background(), actorID, docID)
@@ -183,7 +183,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 	svc := NewTokenService(
 		tokenRepo, fileSvc, authSvc, &mockSessionRepo{},
 		testDiscoverySvc(),
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
 	result, err := svc.IssueToken(context.Background(), actorID, docID)
@@ -204,7 +204,7 @@ func TestIssueToken_DocumentNotFound(t *testing.T) {
 	svc := NewTokenService(
 		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
 		testDiscoverySvc(),
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
 	_, err := svc.IssueToken(context.Background(), "actor", "nonexistent")
@@ -228,7 +228,7 @@ func TestIssueToken_NotAuthorized(t *testing.T) {
 	svc := NewTokenService(
 		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
 		testDiscoverySvc(),
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
 	_, err := svc.IssueToken(context.Background(), "actor", docID)
@@ -253,7 +253,7 @@ func TestValidateToken_Valid(t *testing.T) {
 	svc := NewTokenService(
 		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
 		testDiscoverySvc(),
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
 	result, err := svc.ValidateToken(context.Background(), "valid-token")
@@ -278,7 +278,7 @@ func TestValidateToken_Expired(t *testing.T) {
 	svc := NewTokenService(
 		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
 		testDiscoverySvc(),
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
 	result, err := svc.ValidateToken(context.Background(), "expired-token")
@@ -294,7 +294,7 @@ func TestValidateToken_NotFound(t *testing.T) {
 	svc := NewTokenService(
 		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
 		testDiscoverySvc(),
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
 	result, err := svc.ValidateToken(context.Background(), "nonexistent")
