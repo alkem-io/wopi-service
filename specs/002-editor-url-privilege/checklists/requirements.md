@@ -32,6 +32,6 @@
 ## Notes
 
 - US3 (privilege alignment) is verification-only — confirms `update-content` is correct, no code change needed.
-- The `editorUrl` uses absolute paths (no domain) as an architectural decision documented in assumptions.
+- The `editorUrl` is a full URL using `WOPI_BASE_URL` as the domain prefix.
 - MIME-to-extension mapping is a static table — future Collabora file type support requires manual update.
 - All items pass. Spec is ready for `/speckit.clarify` or `/speckit.plan`.

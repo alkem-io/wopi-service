@@ -99,6 +99,16 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 
 	now := time.Now()
 	expiresAt := now.Add(defaultTokenTTL)
+	wopiSrc := fmt.Sprintf("%s/wopi/files/%s", s.baseURL, documentID)
+	ttlMs := expiresAt.UnixMilli()
+
+	// Resolve editor URL BEFORE persisting token/session to avoid orphaned
+	// rows if the MIME type is unsupported or discovery is unavailable.
+	canWrite := permissions == "read,write"
+	editorURL, err := s.resolveEditorURL(doc.MimeType, wopiSrc, token, ttlMs, canWrite)
+	if err != nil {
+		return nil, fmt.Errorf("resolve editor URL: %w", err)
+	}
 
 	accessToken := &model.AccessToken{
 		ID:          uuid.New(),
@@ -114,7 +124,6 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 		return nil, fmt.Errorf("store token: %w", err)
 	}
 
-	// Create session
 	session := &model.WOPISession{
 		ID:        uuid.New(),
 		FileID:    documentID,
@@ -124,16 +133,6 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 	}
 	if err := s.sessionRepo.Create(ctx, session); err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
-	}
-
-	wopiSrc := fmt.Sprintf("%s/wopi/files/%s", s.baseURL, documentID)
-	ttlMs := expiresAt.UnixMilli()
-
-	// Resolve editor URL from discovery
-	canWrite := permissions == "read,write"
-	editorURL, err := s.resolveEditorURL(doc.MimeType, wopiSrc, token, ttlMs, canWrite)
-	if err != nil {
-		return nil, fmt.Errorf("resolve editor URL: %w", err)
 	}
 
 	return &TokenIssuanceResult{

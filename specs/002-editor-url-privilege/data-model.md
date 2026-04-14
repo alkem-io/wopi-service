@@ -15,7 +15,7 @@ only.
 A Go `map[string]string` mapping MIME types to file extensions.
 Defined in `internal/domain/model/mime.go`.
 
-```
+```text
 "application/vnd.openxmlformats-officedocument.wordprocessingml.document" → "docx"
 "application/msword" → "doc"
 "application/vnd.oasis.opendocument.text" → "odt"
@@ -33,7 +33,7 @@ Defined in `internal/domain/model/mime.go`.
 ### TokenIssuanceResult (extended)
 
 Existing struct in `internal/domain/service/token_service.go`.
-New field: `EditorUrl string`.
+New field: `EditorURL string`.
 
 ## Unchanged
 

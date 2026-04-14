@@ -41,5 +41,5 @@ The `editorUrl` path varies by document type:
 
 | Status | Condition |
 |--------|-----------|
-| 422 Unprocessable Entity | MIME type not supported by Collabora |
+| 422 Unprocessable Entity | MIME type has no extension mapping, or extension has no matching editor action in discovery |
 | 503 Service Unavailable | Discovery cache empty and Collabora unreachable |

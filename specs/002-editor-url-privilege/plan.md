@@ -24,7 +24,7 @@ that `update-content` is the correct write privilege (no change needed).
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Hexagonal Architecture | PASS | New logic in domain service layer, no adapter changes |
+| I. Hexagonal Architecture | PASS | New logic in domain service layer, minor DTO update in adapter |
 | II. WOPI Protocol Compliance | PASS | Editor URL follows WOPI urlsrc template processing |
 | VIII. DRY | PASS | MIME mapping is a single source of truth |
 | IX. Lint on Completion | PASS | golangci-lint before commit |

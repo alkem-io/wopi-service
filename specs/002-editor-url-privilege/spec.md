@@ -42,7 +42,7 @@ correct Collabora editor app, WOPISrc, and access token parameters.
 ### User Story 2 - Document Type to Editor Mapping (Priority: P2)
 
 The WOPI service resolves which Collabora application (Writer, Calc,
-Impress, Draw) handles a given document by matching the document's
+Impress) handles a given document by matching the document's
 MIME type to the file extension, then looking up the corresponding
 editor action in the WOPI discovery data. This mapping is performed
 server-side so the frontend and Alkemio server do not need to know
