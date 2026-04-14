@@ -119,7 +119,7 @@ paths:
               schema:
                 type: object
           description: Default response (no response found)
-  /wopi/token/:
+  /wopi/token:
     post:
       operationId: TokenHandler.ServeHTTP
       requestBody:
@@ -182,5 +182,3 @@ paths:
               schema:
                 type: string
           description: Service Unavailable
-      tags:
-        - /wopi/token
