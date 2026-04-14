@@ -355,12 +355,16 @@ func TestTokenHandler_Success(t *testing.T) {
 	fileSvc := newHandlerMockFileService()
 	docID := uuid.New().String()
 	fileSvc.docs[docID] = &model.Document{
-		ID: docID, AuthorizationPolicyID: uuid.New().String(),
+		ID:                    docID,
+		AuthorizationPolicyID: uuid.New().String(),
+		MimeType:              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	}
 
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
+	discSvc := testHandlerDiscoverySvc()
 	tokenSvc := service.NewTokenService(
 		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		discSvc,
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 	handler := NewTokenHandler(tokenSvc, zap.NewNop())
@@ -429,6 +433,19 @@ func TestTokenHandler_WrongMethod(t *testing.T) {
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", rr.Code)
 	}
+}
+
+func testHandlerDiscoverySvc() *service.DiscoveryService {
+	data := &port.DiscoveryData{
+		Actions: []port.DiscoveryAction{
+			{App: "Writer", Name: "edit", Ext: "docx", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
+			{App: "Writer", Name: "view", Ext: "docx", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
+		},
+	}
+	client := &mockDiscoveryClientForHandler{data: data}
+	svc := service.NewDiscoveryService(client, zap.NewNop())
+	_, _ = svc.GetDiscovery(context.Background())
+	return svc
 }
 
 // --- Discovery handler tests ---
@@ -665,6 +682,7 @@ func TestTokenHandler_DocumentNotFound(t *testing.T) {
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
 		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		nil,
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 	handler := NewTokenHandler(tokenSvc, zap.NewNop())
@@ -694,6 +712,7 @@ func TestTokenHandler_NotAuthorized(t *testing.T) {
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
 		tokenRepo, fileSvc, denyAuth, &stubSessionRepo{},
+		nil,
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 	handler := NewTokenHandler(tokenSvc, zap.NewNop())
@@ -754,6 +773,7 @@ func TestNewRouter_Constructs(t *testing.T) {
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
 		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		nil,
 		"secret", "https://wopi.example.com", zap.NewNop(),
 	)
 	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", zap.NewNop())

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -40,7 +41,7 @@ func NewAuthService(baseURL string) *AuthService {
 	}
 
 	return &AuthService{
-		baseURL: baseURL,
+		baseURL: strings.TrimSuffix(baseURL, "/"),
 		httpClient: &http.Client{
 			Transport: transport,
 			Timeout:   10 * time.Second,

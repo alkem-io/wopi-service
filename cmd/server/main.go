@@ -162,14 +162,15 @@ func createAdapters(pool *pgxpool.Pool, authSvc port.AuthService, cfg *config.Co
 }
 
 func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services {
+	discoverySvc := service.NewDiscoveryService(a.discoveryCli, logger)
 	tokenSvc := service.NewTokenService(
 		a.tokenRepo, a.fileSvc, a.authSvc, a.sessionRepo,
-		cfg.TokenSecret, cfg.BaseURL, logger,
+		discoverySvc, cfg.TokenSecret, cfg.BaseURL, logger,
 	)
 	return services{
 		token:     tokenSvc,
 		wopi:      service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, logger),
-		discovery: service.NewDiscoveryService(a.discoveryCli, logger),
+		discovery: discoverySvc,
 		cleanup:   service.NewCleanupService(a.tokenRepo, a.lockRepo, logger),
 	}
 }

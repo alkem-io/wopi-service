@@ -10,6 +10,7 @@ type TokenIssuanceResponse struct {
 	AccessToken string `json:"accessToken"`
 	TTL         int64  `json:"accessTokenTTL"`
 	WOPISrc     string `json:"wopiSrc"`
+	EditorURL   string `json:"editorUrl"`
 }
 
 // Render writes the response as JSON with 200 OK.

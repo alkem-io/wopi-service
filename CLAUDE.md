@@ -103,3 +103,10 @@ Service:
 
 See `.specify/memory/constitution.md` for the complete set of
 principles and governance rules.
+
+## Active Technologies
+- Go 1.26 (existing codebase) + No new dependencies — uses existing discovery service and config (002-editor-url-privilege)
+- No schema changes (002-editor-url-privilege)
+
+## Recent Changes
+- 002-editor-url-privilege: Added Go 1.26 (existing codebase) + No new dependencies — uses existing discovery service and config

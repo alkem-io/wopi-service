@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,13 +21,14 @@ const defaultTokenTTL = 8 * time.Hour
 
 // TokenService handles WOPI access token generation, validation, and issuance.
 type TokenService struct {
-	tokenRepo   port.TokenRepository
-	fileSvc     port.FileService
-	authSvc     port.AuthService
-	sessionRepo port.SessionRepository
-	secret      string
-	baseURL     string
-	logger      *zap.Logger
+	tokenRepo    port.TokenRepository
+	fileSvc      port.FileService
+	authSvc      port.AuthService
+	sessionRepo  port.SessionRepository
+	discoverySvc *DiscoveryService
+	secret       string
+	baseURL      string
+	logger       *zap.Logger
 }
 
 // NewTokenService creates a new TokenService.
@@ -34,18 +37,20 @@ func NewTokenService(
 	fileSvc port.FileService,
 	authSvc port.AuthService,
 	sessionRepo port.SessionRepository,
+	discoverySvc *DiscoveryService,
 	secret string,
 	baseURL string,
 	logger *zap.Logger,
 ) *TokenService {
 	return &TokenService{
-		tokenRepo:   tokenRepo,
-		fileSvc:     fileSvc,
-		authSvc:     authSvc,
-		sessionRepo: sessionRepo,
-		secret:      secret,
-		baseURL:     baseURL,
-		logger:      logger,
+		tokenRepo:    tokenRepo,
+		fileSvc:      fileSvc,
+		authSvc:      authSvc,
+		sessionRepo:  sessionRepo,
+		discoverySvc: discoverySvc,
+		secret:       secret,
+		baseURL:      strings.TrimSuffix(baseURL, "/"),
+		logger:       logger,
 	}
 }
 
@@ -54,6 +59,7 @@ type TokenIssuanceResult struct {
 	AccessToken string
 	TTL         int64  // UNIX timestamp in milliseconds
 	WOPISrc     string // Full WOPI file URL
+	EditorURL   string // Ready-to-use Collabora editor URL
 }
 
 // IssueToken authenticates and authorizes an actor, then creates a WOPI access token.
@@ -93,6 +99,16 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 
 	now := time.Now()
 	expiresAt := now.Add(defaultTokenTTL)
+	wopiSrc := fmt.Sprintf("%s/wopi/files/%s", s.baseURL, documentID)
+	ttlMs := expiresAt.UnixMilli()
+
+	// Resolve editor URL BEFORE persisting token/session to avoid orphaned
+	// rows if the MIME type is unsupported or discovery is unavailable.
+	canWrite := permissions == "read,write"
+	editorURL, err := s.resolveEditorURL(doc.MimeType, wopiSrc, token, ttlMs, canWrite)
+	if err != nil {
+		return nil, fmt.Errorf("resolve editor URL: %w", err)
+	}
 
 	accessToken := &model.AccessToken{
 		ID:          uuid.New(),
@@ -108,7 +124,6 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 		return nil, fmt.Errorf("store token: %w", err)
 	}
 
-	// Create session
 	session := &model.WOPISession{
 		ID:        uuid.New(),
 		FileID:    documentID,
@@ -122,9 +137,80 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 
 	return &TokenIssuanceResult{
 		AccessToken: token,
-		TTL:         expiresAt.UnixMilli(),
-		WOPISrc:     fmt.Sprintf("%s/wopi/files/%s", s.baseURL, documentID),
+		TTL:         ttlMs,
+		WOPISrc:     wopiSrc,
+		EditorURL:   editorURL,
 	}, nil
+}
+
+// resolveEditorURL builds the Collabora editor URL for a document.
+func (s *TokenService) resolveEditorURL(mimeType, wopiSrc, accessToken string, ttlMs int64, canWrite bool) (string, error) {
+	if s.discoverySvc == nil {
+		return "", ErrNoDiscoveryData
+	}
+
+	ext, err := model.ExtensionForMIME(mimeType)
+	if err != nil {
+		return "", err
+	}
+
+	action, err := s.discoverySvc.FindActionByExtension(ext, canWrite)
+	if err != nil {
+		return "", err
+	}
+
+	return buildEditorURL(action.URLSrc, s.baseURL, wopiSrc, accessToken, ttlMs)
+}
+
+// buildEditorURL constructs the final editor URL by replacing the Collabora
+// internal host with WOPI_BASE_URL and appending WOPI parameters.
+func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken string, ttlMs int64) (string, error) {
+	parsed, err := url.Parse(urlSrc)
+	if err != nil {
+		return "", fmt.Errorf("malformed discovery urlsrc %q: %w", urlSrc, err)
+	}
+
+	editorPath := parsed.Path
+	if parsed.RawQuery != "" {
+		editorPath += "?" + parsed.RawQuery
+	}
+
+	// Strip WOPI template placeholders: <name=VALUE&> or <name&>
+	editorPath = stripWOPIPlaceholders(editorPath)
+
+	// Build final URL
+	sep := "?"
+	if strings.Contains(editorPath, "?") {
+		sep = "&"
+	}
+
+	return fmt.Sprintf("%s%s%sWOPISrc=%s&access_token=%s&access_token_ttl=%d",
+		baseURL, editorPath, sep,
+		url.QueryEscape(wopiSrc),
+		url.QueryEscape(accessToken),
+		ttlMs,
+	), nil
+}
+
+// stripWOPIPlaceholders removes WOPI urlsrc template placeholders.
+// Placeholders look like <ui=UI_LLCC&> or <rs=DC_LLCC&>.
+// Per WOPI spec: remove the entire placeholder including angle brackets.
+func stripWOPIPlaceholders(s string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == '<' {
+			// Find closing >
+			j := strings.IndexByte(s[i:], '>')
+			if j >= 0 {
+				i += j + 1
+				continue
+			}
+		}
+		result.WriteByte(s[i])
+		i++
+	}
+	return result.String()
 }
 
 // ValidateToken looks up and validates an opaque access token.

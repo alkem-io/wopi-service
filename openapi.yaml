@@ -6,12 +6,15 @@ components:
           type: string
         accessTokenTTL:
           type: integer
+        editorUrl:
+          type: string
         wopiSrc:
           type: string
       required:
         - accessToken
         - accessTokenTTL
         - wopiSrc
+        - editorUrl
       type: object
     http.healthResponse:
       properties:
@@ -53,6 +56,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/http.healthResponse'
           description: OK
+      summary: LiveHandler handles the /live endpoint (process-local, no dependency checks).
   /wopi/files/{fileID}:
     get:
       operationId: WOPIHandler.CheckFileInfo
@@ -115,7 +119,7 @@ paths:
               schema:
                 type: object
           description: Default response (no response found)
-  /wopi/token/:
+  /wopi/token:
     post:
       operationId: TokenHandler.ServeHTTP
       requestBody:
@@ -160,11 +164,21 @@ paths:
               schema:
                 type: string
           description: Method Not Allowed
+        "422":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Unprocessable Entity
         "500":
           content:
             text/plain; charset=utf-8:
               schema:
                 type: string
           description: Internal Server Error
-      tags:
-        - /wopi/token
+        "503":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Service Unavailable

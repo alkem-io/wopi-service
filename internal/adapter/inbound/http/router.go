@@ -37,10 +37,7 @@ func NewRouter(deps RouterDeps) chi.Router {
 	r.Handle("/wopi/discovery", deps.DiscoveryHandler)
 
 	// Token issuance — behind Oathkeeper (JWT auth)
-	r.Route("/wopi/token", func(sub chi.Router) {
-		sub.Use(JWTMiddleware)
-		sub.Post("/", deps.TokenHandler.ServeHTTP)
-	})
+	r.With(JWTMiddleware).Post("/wopi/token", deps.TokenHandler.ServeHTTP)
 
 	// WOPI protocol endpoints — access token auth + proof validation
 	r.Group(func(sub chi.Router) {
