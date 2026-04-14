@@ -56,6 +56,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/http.healthResponse'
           description: OK
+      summary: LiveHandler handles the /live endpoint (process-local, no dependency checks).
   /wopi/files/{fileID}:
     get:
       operationId: WOPIHandler.CheckFileInfo
