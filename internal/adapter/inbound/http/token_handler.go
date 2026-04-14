@@ -69,6 +69,11 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logger.Info("token issued",
+		zap.String("documentId", req.DocumentID),
+		zap.String("actorId", actorID),
+	)
+
 	TokenIssuanceResponse{
 		AccessToken: result.AccessToken,
 		TTL:         result.TTL,
