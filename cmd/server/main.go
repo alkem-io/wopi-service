@@ -164,7 +164,7 @@ func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services
 	discoverySvc := service.NewDiscoveryService(a.discoveryCli, logger)
 	tokenSvc := service.NewTokenService(
 		a.tokenRepo, a.fileSvc, a.authSvc, a.sessionRepo,
-		discoverySvc, cfg.TokenSecret, cfg.BaseURL, logger,
+		discoverySvc, cfg.TokenSecret, cfg.BaseURL, cfg.CallbackURL, logger,
 	)
 	return services{
 		token:     tokenSvc,

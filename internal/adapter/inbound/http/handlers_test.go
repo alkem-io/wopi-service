@@ -365,7 +365,7 @@ func TestTokenHandler_Success(t *testing.T) {
 	tokenSvc := service.NewTokenService(
 		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
 		discSvc,
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 	handler := NewTokenHandler(tokenSvc, zap.NewNop())
 
@@ -683,7 +683,7 @@ func TestTokenHandler_DocumentNotFound(t *testing.T) {
 	tokenSvc := service.NewTokenService(
 		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
 		nil,
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 	handler := NewTokenHandler(tokenSvc, zap.NewNop())
 
@@ -713,7 +713,7 @@ func TestTokenHandler_NotAuthorized(t *testing.T) {
 	tokenSvc := service.NewTokenService(
 		tokenRepo, fileSvc, denyAuth, &stubSessionRepo{},
 		nil,
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 	handler := NewTokenHandler(tokenSvc, zap.NewNop())
 
@@ -774,7 +774,7 @@ func TestNewRouter_Constructs(t *testing.T) {
 	tokenSvc := service.NewTokenService(
 		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
 		nil,
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", zap.NewNop())
 

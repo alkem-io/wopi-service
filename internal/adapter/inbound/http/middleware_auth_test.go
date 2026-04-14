@@ -65,7 +65,7 @@ func makeTokenService(repo *memTokenRepo) *service.TokenService {
 	return service.NewTokenService(
 		repo, &stubFileService{}, &stubAuthSvc{}, &stubSessionRepo{},
 		nil,
-		"secret", "https://wopi.example.com", zap.NewNop(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 }
 

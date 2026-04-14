@@ -27,7 +27,8 @@ type TokenService struct {
 	sessionRepo  port.SessionRepository
 	discoverySvc *DiscoveryService
 	secret       string
-	baseURL      string
+	baseURL      string // Browser-facing URL (editor iframe src)
+	callbackURL  string // Collabora server-side callback URL (WOPISrc)
 	logger       *zap.Logger
 }
 
@@ -40,6 +41,7 @@ func NewTokenService(
 	discoverySvc *DiscoveryService,
 	secret string,
 	baseURL string,
+	callbackURL string,
 	logger *zap.Logger,
 ) *TokenService {
 	return &TokenService{
@@ -50,6 +52,7 @@ func NewTokenService(
 		discoverySvc: discoverySvc,
 		secret:       secret,
 		baseURL:      strings.TrimSuffix(baseURL, "/"),
+		callbackURL:  strings.TrimSuffix(callbackURL, "/"),
 		logger:       logger,
 	}
 }
@@ -99,7 +102,7 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, documentID strin
 
 	now := time.Now()
 	expiresAt := now.Add(defaultTokenTTL)
-	wopiSrc := fmt.Sprintf("%s/wopi/files/%s", s.baseURL, documentID)
+	wopiSrc := fmt.Sprintf("%s/wopi/files/%s", s.callbackURL, documentID)
 	ttlMs := expiresAt.UnixMilli()
 
 	// Resolve editor URL BEFORE persisting token/session to avoid orphaned
