@@ -33,19 +33,31 @@ func (q *Queries) DeleteTokenByID(ctx context.Context, id pgtype.UUID) error {
 }
 
 const findByToken = `-- name: FindByToken :one
-SELECT id, token, file_id, actor_id, permissions, expires_at, created_at
+SELECT id, token, file_id, actor_id, actor_name, permissions, expires_at, created_at
 FROM access_tokens
 WHERE token = $1
 `
 
-func (q *Queries) FindByToken(ctx context.Context, token string) (AccessToken, error) {
+type FindByTokenRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	Token       string             `json:"token"`
+	FileID      string             `json:"file_id"`
+	ActorID     string             `json:"actor_id"`
+	ActorName   string             `json:"actor_name"`
+	Permissions string             `json:"permissions"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) FindByToken(ctx context.Context, token string) (FindByTokenRow, error) {
 	row := q.db.QueryRow(ctx, findByToken, token)
-	var i AccessToken
+	var i FindByTokenRow
 	err := row.Scan(
 		&i.ID,
 		&i.Token,
 		&i.FileID,
 		&i.ActorID,
+		&i.ActorName,
 		&i.Permissions,
 		&i.ExpiresAt,
 		&i.CreatedAt,
@@ -54,8 +66,8 @@ func (q *Queries) FindByToken(ctx context.Context, token string) (AccessToken, e
 }
 
 const insertToken = `-- name: InsertToken :exec
-INSERT INTO access_tokens (id, token, file_id, actor_id, permissions, expires_at, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO access_tokens (id, token, file_id, actor_id, actor_name, permissions, expires_at, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertTokenParams struct {
@@ -63,6 +75,7 @@ type InsertTokenParams struct {
 	Token       string             `json:"token"`
 	FileID      string             `json:"file_id"`
 	ActorID     string             `json:"actor_id"`
+	ActorName   string             `json:"actor_name"`
 	Permissions string             `json:"permissions"`
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
@@ -74,6 +87,7 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) error 
 		arg.Token,
 		arg.FileID,
 		arg.ActorID,
+		arg.ActorName,
 		arg.Permissions,
 		arg.ExpiresAt,
 		arg.CreatedAt,

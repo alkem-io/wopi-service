@@ -1,0 +1,1 @@
+ALTER TABLE access_tokens ADD COLUMN actor_name VARCHAR(255) NOT NULL DEFAULT '';

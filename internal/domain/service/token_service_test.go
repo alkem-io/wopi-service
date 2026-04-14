@@ -149,7 +149,7 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	result, err := svc.IssueToken(context.Background(), actorID, docID)
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	result, err := svc.IssueToken(context.Background(), actorID, docID)
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestIssueToken_DocumentNotFound(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	_, err := svc.IssueToken(context.Background(), "actor", "nonexistent")
+	_, err := svc.IssueToken(context.Background(), "actor", "Test User", "nonexistent")
 	if !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("expected ErrDocumentNotFound, got %v", err)
 	}
@@ -231,7 +231,7 @@ func TestIssueToken_NotAuthorized(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	_, err := svc.IssueToken(context.Background(), "actor", docID)
+	_, err := svc.IssueToken(context.Background(), "actor", "Test User", docID)
 	if !errors.Is(err, ErrNotAuthorized) {
 		t.Errorf("expected ErrNotAuthorized, got %v", err)
 	}

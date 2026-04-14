@@ -11,11 +11,14 @@ import (
 
 type contextKey string
 
-const actorIDKey contextKey = "actorID"
+const (
+	actorIDKey   contextKey = "actorID"
+	actorNameKey contextKey = "actorName"
+)
 
-// JWTMiddleware extracts the alkemio_actor_id from the Oathkeeper-injected JWT.
-// Oathkeeper has already validated the JWT — we only parse the payload to
-// extract the actor ID without re-validating the signature.
+// JWTMiddleware extracts the alkemio_actor_id and user display name from the
+// Oathkeeper-injected JWT. Oathkeeper has already validated the JWT — we only
+// parse the payload to extract claims without re-validating the signature.
 func JWTMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
@@ -30,13 +33,14 @@ func JWTMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		actorID, err := extractActorIDFromJWT(parts[1])
-		if err != nil || actorID == "" {
+		claims, err := extractClaimsFromJWT(parts[1])
+		if err != nil || claims.AlkemioActorID == "" {
 			http.Error(w, `{"error":"invalid token: missing actor ID"}`, http.StatusUnauthorized)
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), actorIDKey, actorID)
+		ctx := context.WithValue(r.Context(), actorIDKey, claims.AlkemioActorID)
+		ctx = context.WithValue(ctx, actorNameKey, claims.ActorDisplayName())
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -49,25 +53,73 @@ func ActorIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-type jwtClaims struct {
-	AlkemioActorID string `json:"alkemio_actor_id"`
+// ActorNameFromContext retrieves the actor display name set by JWTMiddleware.
+func ActorNameFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(actorNameKey).(string); ok {
+		return v
+	}
+	return ""
 }
 
-func extractActorIDFromJWT(tokenString string) (string, error) {
+type jwtClaims struct {
+	AlkemioActorID string     `json:"alkemio_actor_id"`
+	Session        jwtSession `json:"session"`
+}
+
+type jwtSession struct {
+	Identity jwtIdentity `json:"identity"`
+}
+
+type jwtIdentity struct {
+	Traits jwtTraits `json:"traits"`
+}
+
+type jwtTraits struct {
+	Name  jwtName `json:"name"`
+	Email string  `json:"email"`
+}
+
+type jwtName struct {
+	First string `json:"first"`
+	Last  string `json:"last"`
+}
+
+// ActorDisplayName returns a human-readable display name from the JWT claims.
+func (c *jwtClaims) ActorDisplayName() string {
+	first := strings.TrimSpace(c.Session.Identity.Traits.Name.First)
+	last := strings.TrimSpace(c.Session.Identity.Traits.Name.Last)
+
+	if first != "" && last != "" {
+		return first + " " + last
+	}
+	if first != "" {
+		return first
+	}
+	if last != "" {
+		return last
+	}
+	// Fallback to email if no name
+	if c.Session.Identity.Traits.Email != "" {
+		return c.Session.Identity.Traits.Email
+	}
+	return ""
+}
+
+func extractClaimsFromJWT(tokenString string) (*jwtClaims, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
-		return "", nil
+		return nil, nil
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var claims jwtClaims
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return claims.AlkemioActorID, nil
+	return &claims, nil
 }
