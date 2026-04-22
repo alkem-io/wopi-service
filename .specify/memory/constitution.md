@@ -296,9 +296,9 @@ The WOPI service integrates with two primary external systems:
 
 **file-service-go** (Go, HTTP, cluster-internal):
 - Private endpoints for file metadata and content.
-- Metadata via `GET /internal/document/:id/meta`.
-- GetFile reads content via `GET /internal/document/:id/content`.
-- PutFile writes content via `PUT /internal/document/:id/content`
+- Metadata via `GET /internal/file/:id/meta`.
+- GetFile reads content via `GET /internal/file/:id/content`.
+- PutFile writes content via `PUT /internal/file/:id/content`
   (store-and-link: replaces file + updates document record).
 
 **Collabora Online**:

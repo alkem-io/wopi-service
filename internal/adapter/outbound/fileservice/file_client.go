@@ -41,7 +41,7 @@ func NewFileClient(baseURL string) *FileClient {
 	}
 }
 
-// metaResponse matches the GET /internal/document/:id/meta response.
+// metaResponse matches the GET /internal/file/:id/meta response.
 type metaResponse struct {
 	ID              string `json:"id"`
 	ExternalID      string `json:"externalID"`
@@ -54,7 +54,7 @@ type metaResponse struct {
 
 // FindByID retrieves document metadata from file-service-go.
 func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Document, error) {
-	url := fmt.Sprintf("%s/internal/document/%s/meta", c.baseURL, documentID)
+	url := fmt.Sprintf("%s/internal/file/%s/meta", c.baseURL, documentID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create meta request: %w", err)
@@ -90,7 +90,7 @@ func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Do
 
 // ReadFile returns the content of a file by document ID.
 func (c *FileClient) ReadFile(ctx context.Context, documentID string) (io.ReadCloser, error) {
-	url := fmt.Sprintf("%s/internal/document/%s/content", c.baseURL, documentID)
+	url := fmt.Sprintf("%s/internal/file/%s/content", c.baseURL, documentID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create read request: %w", err)
@@ -115,7 +115,7 @@ func (c *FileClient) ReadFile(ctx context.Context, documentID string) (io.ReadCl
 
 // WriteFile replaces file content for a document (store-and-link).
 func (c *FileClient) WriteFile(ctx context.Context, documentID string, content io.Reader) (*port.FileWriteResult, error) {
-	url := fmt.Sprintf("%s/internal/document/%s/content", c.baseURL, documentID)
+	url := fmt.Sprintf("%s/internal/file/%s/content", c.baseURL, documentID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
 	if err != nil {
 		return nil, fmt.Errorf("create write request: %w", err)
@@ -144,7 +144,7 @@ func (c *FileClient) WriteFile(ctx context.Context, documentID string, content i
 
 // FileExists checks whether a document's file exists in storage.
 func (c *FileClient) FileExists(ctx context.Context, documentID string) (bool, error) {
-	url := fmt.Sprintf("%s/internal/document/%s/content", c.baseURL, documentID)
+	url := fmt.Sprintf("%s/internal/file/%s/content", c.baseURL, documentID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return false, fmt.Errorf("create exists request: %w", err)

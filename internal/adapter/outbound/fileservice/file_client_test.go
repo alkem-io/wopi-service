@@ -36,7 +36,7 @@ func startH2CServer(t *testing.T, handler http.Handler) string {
 
 func TestFileClient_FindByID_Success(t *testing.T) {
 	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/internal/document/doc-1/meta" {
+		if r.URL.Path != "/internal/file/doc-1/meta" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -79,7 +79,7 @@ func TestFileClient_FindByID_NotFound(t *testing.T) {
 
 func TestFileClient_ReadFile_Success(t *testing.T) {
 	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/internal/document/doc-1/content" {
+		if r.URL.Path != "/internal/file/doc-1/content" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		_, _ = w.Write([]byte("binary content"))
@@ -118,7 +118,7 @@ func TestFileClient_WriteFile_Success(t *testing.T) {
 		if r.Method != http.MethodPut {
 			t.Errorf("method = %q", r.Method)
 		}
-		if r.URL.Path != "/internal/document/doc-1/content" {
+		if r.URL.Path != "/internal/file/doc-1/content" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
