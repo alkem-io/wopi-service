@@ -93,7 +93,7 @@ WOPI service.
 ### Get Document Metadata
 
 ```
-GET /internal/document/:id/meta
+GET /internal/file/:id/meta
 ```
 
 **Response** `200 OK`:
@@ -119,7 +119,7 @@ auth check), CheckFileInfo (file metadata).
 ### Read File Content
 
 ```
-GET /internal/document/:id/content
+GET /internal/file/:id/content
 ```
 
 **Response** `200 OK`: Raw binary file content with Content-Type.
@@ -130,7 +130,7 @@ GET /internal/document/:id/content
 ### Write File Content (store-and-link)
 
 ```
-PUT /internal/document/:id/content
+PUT /internal/file/:id/content
 Content-Type: application/octet-stream
 ```
 
@@ -151,7 +151,7 @@ Content-Type: application/octet-stream
 ### Check File Exists
 
 ```
-HEAD /internal/document/:id/content
+HEAD /internal/file/:id/content
 ```
 
 **Status codes**: 200 (exists), 404 (not found)
