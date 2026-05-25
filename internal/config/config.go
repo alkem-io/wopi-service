@@ -131,17 +131,23 @@ func Load() (*Config, error) {
 		cfg.CallbackURL = cfg.BaseURL
 	}
 
-	// Default FrontendOrigin to the origin (scheme://host[:port]) of BaseURL.
-	// In typical deployments the editor iframe is served from the same domain
-	// as the embedding application, so BaseURL's origin is the correct value.
-	// Override via WOPI_FRONTEND_ORIGIN for split-domain setups.
-	if cfg.FrontendOrigin == "" {
-		origin, err := originOf(cfg.BaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("derive WOPI_FRONTEND_ORIGIN from WOPI_BASE_URL: %w", err)
-		}
-		cfg.FrontendOrigin = origin
+	// FrontendOrigin: explicit value overrides; otherwise derive from BaseURL.
+	// Either way, canonicalize through originOf so we always emit a clean
+	// scheme://host[:port] string as WOPI PostMessageOrigin — a malformed
+	// explicit value (e.g. an accidental trailing path) would otherwise
+	// silently break Collabora's PostMessage origin check at runtime.
+	source := cfg.FrontendOrigin
+	if source == "" {
+		source = cfg.BaseURL
 	}
+	origin, err := originOf(source)
+	if err != nil {
+		if cfg.FrontendOrigin != "" {
+			return nil, fmt.Errorf("invalid WOPI_FRONTEND_ORIGIN: %w", err)
+		}
+		return nil, fmt.Errorf("derive WOPI_FRONTEND_ORIGIN from WOPI_BASE_URL: %w", err)
+	}
+	cfg.FrontendOrigin = origin
 
 	if cfg.TokenSecret == "" {
 		return nil, fmt.Errorf("required environment variable WOPI_TOKEN_SECRET is not set")
