@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook for wopi-service.
+#
+# Keeps `openapi.yaml` in sync with the Go HTTP handlers: whenever Go
+# source files are staged, regenerate the spec via `make openapi` and
+# abort the commit if the result differs from what's already staged.
+# CI runs the same check (`openapi.yaml is stale`); catching it locally
+# saves a CI round-trip.
+#
+# Install once per clone:
+#     git config core.hooksPath .githooks
+#
+# Bypass (e.g. for a temp WIP commit):
+#     git commit --no-verify
+
+set -euo pipefail
+
+# Only re-generate when Go sources changed — keeps no-op commits cheap
+# and avoids running the generator for docs-only or migration-only changes.
+go_changed=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.go$' || true)
+if [ -z "$go_changed" ]; then
+    exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+if ! command -v apispec >/dev/null 2>&1; then
+    echo "pre-commit: apispec not installed; skipping openapi regeneration." >&2
+    echo "pre-commit: install with 'go install github.com/antst/go-apispec@latest'" >&2
+    exit 0
+fi
+
+# Snapshot current openapi.yaml to detect drift after regenerating.
+before_hash=$(git hash-object openapi.yaml 2>/dev/null || echo "missing")
+
+# Suppress generator banner; only show output on failure.
+gen_log=$(mktemp)
+trap 'rm -f "$gen_log"' EXIT
+if ! make openapi >"$gen_log" 2>&1; then
+    echo "pre-commit: 'make openapi' failed:" >&2
+    cat "$gen_log" >&2
+    exit 1
+fi
+
+after_hash=$(git hash-object openapi.yaml)
+
+if [ "$before_hash" != "$after_hash" ]; then
+    echo "pre-commit: openapi.yaml was stale; regenerated from current Go handlers." >&2
+    echo "pre-commit: run 'git add openapi.yaml' and commit again." >&2
+    echo "pre-commit: (CI rejects commits with a stale openapi.yaml — this catches it locally.)" >&2
+    exit 1
+fi

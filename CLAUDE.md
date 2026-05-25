@@ -55,6 +55,9 @@ integration into the Alkemio platform.
 
 ## Development Workflow
 
+- Install the pre-commit hook once per clone: `make install-hooks`. It
+  runs `make openapi` whenever Go sources are staged and aborts the
+  commit if `openapi.yaml` ends up stale — same check CI enforces.
 - Always run `golangci-lint run` before committing
 - Tests must defend real invariants — no coverage-padding tests
 - Root cause analysis is mandatory before any bug fix; document the
