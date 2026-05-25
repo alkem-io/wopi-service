@@ -166,7 +166,7 @@ func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services
 	)
 	return services{
 		token:     tokenSvc,
-		wopi:      service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, cfg.FrontendOrigin, logger),
+		wopi:      service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, cfg.FrontendOrigin, cfg.MaxLockLifetime, logger),
 		discovery: discoverySvc,
 		cleanup:   service.NewCleanupService(a.tokenRepo, a.lockRepo, logger),
 	}

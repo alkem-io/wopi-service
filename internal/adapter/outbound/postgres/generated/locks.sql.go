@@ -59,6 +59,39 @@ func (q *Queries) FindLockByFileID(ctx context.Context, fileID string) (Lock, er
 	return i, err
 }
 
+const takeoverLock = `-- name: TakeoverLock :execrows
+UPDATE locks
+SET lock_id = $3, created_at = $4, expires_at = $5
+WHERE file_id = $1 AND lock_id = $2
+`
+
+type TakeoverLockParams struct {
+	FileID    string             `json:"file_id"`
+	LockID    string             `json:"lock_id"`
+	LockID_2  string             `json:"lock_id_2"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+// Replace an existing lock atomically when a new lockID requests a Lock on
+// a file whose existing lock is past its maximum lifetime (zombie-defence).
+// The WHERE clause uses the previous lockID so concurrent takeover attempts
+// collide cleanly: only one wins, the rest see zero rows affected and
+// treat it as a normal lock conflict.
+func (q *Queries) TakeoverLock(ctx context.Context, arg TakeoverLockParams) (int64, error) {
+	result, err := q.db.Exec(ctx, takeoverLock,
+		arg.FileID,
+		arg.LockID,
+		arg.LockID_2,
+		arg.CreatedAt,
+		arg.ExpiresAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateLockExpiry = `-- name: UpdateLockExpiry :execrows
 UPDATE locks SET expires_at = $3
 WHERE file_id = $1 AND lock_id = $2 AND expires_at > now()

@@ -103,6 +103,16 @@ func (m *handlerMockLockRepo) DeleteByFileID(_ context.Context, fileID, lockID s
 	return nil
 }
 func (m *handlerMockLockRepo) DeleteExpired(_ context.Context) (int64, error) { return 0, nil }
+func (m *handlerMockLockRepo) Takeover(_ context.Context, fileID, oldLockID, newLockID string, newCreatedAt, newExpiresAt time.Time) error {
+	existing, ok := m.locks[fileID]
+	if !ok || existing.LockID != oldLockID {
+		return port.ErrStaleLock
+	}
+	existing.LockID = newLockID
+	existing.CreatedAt = newCreatedAt
+	existing.ExpiresAt = newExpiresAt
+	return nil
+}
 
 // helper: create a request with a token already in context
 func reqWithToken(method, path string, body io.Reader, token *model.AccessToken) *http.Request {
@@ -114,7 +124,7 @@ func reqWithToken(method, path string, body io.Reader, token *model.AccessToken)
 func setupWOPIHandler() (*WOPIHandler, *handlerMockFileService, *handlerMockLockRepo) {
 	fileSvc := newHandlerMockFileService()
 	lockRepo := newHandlerMockLockRepo()
-	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
+	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 	handler := NewWOPIHandler(wopiSvc, zap.NewNop())
 	return handler, fileSvc, lockRepo
 }
@@ -283,7 +293,9 @@ func TestWOPIHandler_Lock_Conflict(t *testing.T) {
 	handler, _, lockRepo := setupWOPIHandler()
 	docID := uuid.New().String()
 	lockRepo.locks[docID] = &model.Lock{
-		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
+		FileID: docID, LockID: "lock-A",
+		CreatedAt: time.Now().Add(-5 * time.Minute), // within MaxLockLifetime so we get a real conflict
+		ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
 	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
@@ -815,7 +827,7 @@ func TestNewRouter_Constructs(t *testing.T) {
 		nil,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
-	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
+	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 
 	tokenHandler := NewTokenHandler(tokenSvc, zap.NewNop())
 	wopiHandler := NewWOPIHandler(wopiSvc, zap.NewNop())

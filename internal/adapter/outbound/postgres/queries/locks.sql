@@ -22,3 +22,13 @@ DELETE FROM locks WHERE file_id = $1 AND lock_id = $2;
 
 -- name: DeleteExpiredLocks :execrows
 DELETE FROM locks WHERE expires_at < now();
+
+-- name: TakeoverLock :execrows
+-- Replace an existing lock atomically when a new lockID requests a Lock on
+-- a file whose existing lock is past its maximum lifetime (zombie-defence).
+-- The WHERE clause uses the previous lockID so concurrent takeover attempts
+-- collide cleanly: only one wins, the rest see zero rows affected and
+-- treat it as a normal lock conflict.
+UPDATE locks
+SET lock_id = $3, created_at = $4, expires_at = $5
+WHERE file_id = $1 AND lock_id = $2;

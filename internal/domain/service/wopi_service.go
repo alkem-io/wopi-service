@@ -29,18 +29,28 @@ type WOPIService struct {
 	lockRepo          port.LockRepository
 	baseURL           string
 	postMessageOrigin string
+	maxLockLifetime   time.Duration
 	logger            *zap.Logger
 }
 
 // NewWOPIService creates a new WOPIService.
+//
 // postMessageOrigin is the embedding page's origin (scheme://host[:port]);
 // Collabora uses it as the `PostMessageOrigin` target for save/connect
 // status notifications back to the host frame. Empty disables the field.
+//
+// maxLockLifetime is the hard upper bound on how long a single Collabora
+// lockID is allowed to persist via repeated refreshes. When a NEW lockID
+// requests Lock on a file whose existing lock has lived past this, the
+// new lockID is permitted to take over (zombie-defence). Zero or negative
+// disables the defence — same-lockID refreshes can extend the lock
+// indefinitely, which is the legacy behaviour.
 func NewWOPIService(
 	fileSvc port.FileService,
 	lockRepo port.LockRepository,
 	baseURL string,
 	postMessageOrigin string,
+	maxLockLifetime time.Duration,
 	logger *zap.Logger,
 ) *WOPIService {
 	return &WOPIService{
@@ -48,6 +58,7 @@ func NewWOPIService(
 		lockRepo:          lockRepo,
 		baseURL:           baseURL,
 		postMessageOrigin: postMessageOrigin,
+		maxLockLifetime:   maxLockLifetime,
 		logger:            logger,
 	}
 }
@@ -158,7 +169,24 @@ func (s *WOPIService) PutFile(ctx context.Context, token *model.AccessToken, loc
 	}, nil
 }
 
-// Lock acquires or refreshes a lock on a file.
+// Lock acquires, refreshes, or takes over a lock on a file.
+//
+// Branches:
+//
+//   - No existing (non-expired) lock → acquire fresh.
+//   - Existing lock with the same lockID → refresh expiry.
+//   - Existing lock with a different lockID, within MaxLockLifetime →
+//     LockConflictError (the normal WOPI semantics: the lock belongs to
+//     someone else, the caller must back off).
+//   - Existing lock with a different lockID, **past MaxLockLifetime** →
+//     atomic takeover. This defends against zombie DocBrokers that keep
+//     refreshing their lock indefinitely, blocking every new session for
+//     the same file. The takeover resets created_at + expires_at; the
+//     old lockID is forever discarded.
+//
+// Same-lockID refreshes are never capped — an actively held lock by a
+// real session must be allowed to continue regardless of how long the
+// session has lasted.
 func (s *WOPIService) Lock(ctx context.Context, fileID, lockID string) error {
 	if lockID == "" {
 		return fmt.Errorf("lock ID must not be empty")
@@ -169,16 +197,40 @@ func (s *WOPIService) Lock(ctx context.Context, fileID, lockID string) error {
 		return fmt.Errorf("check existing lock: %w", err)
 	}
 
+	now := time.Now()
+
 	if existing != nil {
 		if existing.LockID == lockID {
-			existing.ExpiresAt = time.Now().Add(model.DefaultLockDuration)
+			existing.ExpiresAt = now.Add(model.DefaultLockDuration)
 			return wrapStaleLock(s.lockRepo.RefreshExpiry(ctx, fileID, lockID, existing))
 		}
+
+		// Different lockID. If the existing lock is past the configured
+		// maximum lifetime, treat its holder as a presumed-dead zombie
+		// and let the new lockID take over. Otherwise honour normal WOPI
+		// lock-conflict semantics.
+		if s.maxLockLifetime > 0 && now.Sub(existing.CreatedAt) > s.maxLockLifetime {
+			s.logger.Info("zombie-lock takeover",
+				zap.String("fileId", fileID),
+				zap.String("oldLockId", existing.LockID),
+				zap.String("newLockId", lockID),
+				zap.Duration("age", now.Sub(existing.CreatedAt)),
+			)
+			err := s.lockRepo.Takeover(ctx, fileID, existing.LockID, lockID,
+				now, now.Add(model.DefaultLockDuration))
+			if errors.Is(err, port.ErrStaleLock) {
+				// Lost the takeover race to a concurrent request. Re-read
+				// state on the next call by reporting a normal conflict
+				// against whatever the winner is now holding.
+				return &LockConflictError{ExistingLockID: existing.LockID}
+			}
+			return err
+		}
+
 		return &LockConflictError{ExistingLockID: existing.LockID}
 	}
 
 	// No lock or expired — acquire new lock
-	now := time.Now()
 	lock := &model.Lock{
 		ID:        uuid.New(),
 		FileID:    fileID,

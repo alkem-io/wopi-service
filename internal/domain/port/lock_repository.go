@@ -3,6 +3,7 @@ package port
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 )
@@ -27,4 +28,10 @@ type LockRepository interface {
 	DeleteByFileID(ctx context.Context, fileID, lockID string) error
 	// DeleteExpired removes all expired locks and returns the count deleted.
 	DeleteExpired(ctx context.Context) (int64, error)
+	// Takeover atomically replaces an existing lock (different lockID) with a
+	// new one, resetting created_at and expires_at. Used by the zombie-defence
+	// path in WOPIService.Lock when an existing lock has lived past
+	// MaxLockLifetime. CAS on (fileID, oldLockID); returns ErrStaleLock when
+	// another concurrent takeover wins.
+	Takeover(ctx context.Context, fileID, oldLockID, newLockID string, newCreatedAt, newExpiresAt time.Time) error
 }

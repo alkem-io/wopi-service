@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -114,4 +115,26 @@ func (r *LockRepository) DeleteByFileID(ctx context.Context, fileID, lockID stri
 func (r *LockRepository) DeleteExpired(ctx context.Context) (int64, error) {
 	q := generated.New(r.db)
 	return q.DeleteExpiredLocks(ctx)
+}
+
+// Takeover atomically replaces an existing lock (different lockID) with a
+// new one — used when an existing lock has lived past MaxLockLifetime and
+// is presumed to belong to a zombie session that won't release it. CAS on
+// (fileID, oldLockID).
+func (r *LockRepository) Takeover(ctx context.Context, fileID, oldLockID, newLockID string, newCreatedAt, newExpiresAt time.Time) error {
+	q := generated.New(r.db)
+	rows, err := q.TakeoverLock(ctx, generated.TakeoverLockParams{
+		FileID:    fileID,
+		LockID:    oldLockID,
+		LockID_2:  newLockID,
+		CreatedAt: timestamptzFromTime(newCreatedAt),
+		ExpiresAt: timestamptzFromTime(newExpiresAt),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return port.ErrStaleLock
+	}
+	return nil
 }

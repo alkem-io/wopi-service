@@ -31,6 +31,7 @@ type Config struct {
 	TokenSecret     string
 	ServerPort      string
 	ProofValidation bool
+	MaxLockLifetime time.Duration // Hard upper bound on how long a single Collabora lockID can persist (via repeated refreshes). A NEW lockID requesting Lock on a file whose existing lock has lived past this is allowed to take over. Defends against zombie DocBrokers that refresh the lock indefinitely.
 }
 
 // DatabaseConfig holds PostgreSQL connection parameters.
@@ -82,26 +83,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("WOPI_DATABASE_TIMEOUT must be positive")
 	}
 
-	breakerFailures, err := parseUint32Strict(getEnv("AUTH_BREAKER_FAILURE_THRESHOLD", "3"))
+	breakerFailures, breakerTimeout, breakerHalfOpen, err := loadBreakerConfig()
 	if err != nil {
-		return nil, fmt.Errorf("invalid AUTH_BREAKER_FAILURE_THRESHOLD: %w", err)
-	}
-	if breakerFailures == 0 {
-		return nil, fmt.Errorf("AUTH_BREAKER_FAILURE_THRESHOLD must be positive")
-	}
-	breakerTimeout, err := parseIntStrict(getEnv("AUTH_BREAKER_TIMEOUT_SECONDS", "15"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid AUTH_BREAKER_TIMEOUT_SECONDS: %w", err)
-	}
-	if breakerTimeout <= 0 {
-		return nil, fmt.Errorf("AUTH_BREAKER_TIMEOUT_SECONDS must be positive")
-	}
-	breakerHalfOpen, err := parseUint32Strict(getEnv("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS", "2"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS: %w", err)
-	}
-	if breakerHalfOpen == 0 {
-		return nil, fmt.Errorf("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS must be positive")
+		return nil, err
 	}
 
 	cfg := &Config{
@@ -132,6 +116,15 @@ func Load() (*Config, error) {
 		TokenSecret:    getEnv("WOPI_TOKEN_SECRET", ""),
 		ServerPort:     getEnv("WOPI_SERVER_PORT", "8080"),
 	}
+
+	maxLockLifetime, err := parseDuration(getEnv("WOPI_MAX_LOCK_LIFETIME", "4h"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid WOPI_MAX_LOCK_LIFETIME: %w", err)
+	}
+	if maxLockLifetime <= 0 {
+		return nil, fmt.Errorf("WOPI_MAX_LOCK_LIFETIME must be positive")
+	}
+	cfg.MaxLockLifetime = maxLockLifetime
 
 	// Default CallbackURL to BaseURL when not explicitly set
 	if cfg.CallbackURL == "" {
@@ -165,6 +158,33 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// loadBreakerConfig parses and validates the AUTH_BREAKER_* env vars.
+// Extracted to keep Load() within cyclomatic-complexity bounds.
+func loadBreakerConfig() (failures uint32, timeoutSecs int, halfOpenMax uint32, err error) {
+	failures, err = parseUint32Strict(getEnv("AUTH_BREAKER_FAILURE_THRESHOLD", "3"))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid AUTH_BREAKER_FAILURE_THRESHOLD: %w", err)
+	}
+	if failures == 0 {
+		return 0, 0, 0, fmt.Errorf("AUTH_BREAKER_FAILURE_THRESHOLD must be positive")
+	}
+	timeoutSecs, err = parseIntStrict(getEnv("AUTH_BREAKER_TIMEOUT_SECONDS", "15"))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid AUTH_BREAKER_TIMEOUT_SECONDS: %w", err)
+	}
+	if timeoutSecs <= 0 {
+		return 0, 0, 0, fmt.Errorf("AUTH_BREAKER_TIMEOUT_SECONDS must be positive")
+	}
+	halfOpenMax, err = parseUint32Strict(getEnv("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS", "2"))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS: %w", err)
+	}
+	if halfOpenMax == 0 {
+		return 0, 0, 0, fmt.Errorf("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS must be positive")
+	}
+	return failures, timeoutSecs, halfOpenMax, nil
 }
 
 func getEnv(key, fallback string) string {

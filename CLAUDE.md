@@ -104,6 +104,12 @@ Service:
   embedding the editor iframe; used as WOPI `PostMessageOrigin` so
   Collabora can post status updates back to the host frame. Defaults
   to the origin of `WOPI_BASE_URL`.
+- `WOPI_MAX_LOCK_LIFETIME` (default: `4h`) — hard upper bound on how
+  long a single Collabora lockID can persist via repeated refreshes.
+  A NEW lockID requesting Lock on a file whose existing lock has
+  lived past this is allowed to take over. Defends against zombie
+  DocBrokers that refresh the lock indefinitely. Same-lockID refreshes
+  are never capped.
 
 ## Full Constitution
 
