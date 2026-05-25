@@ -24,7 +24,6 @@ type TokenService struct {
 	tokenRepo    port.TokenRepository
 	fileSvc      port.FileService
 	authSvc      port.AuthService
-	sessionRepo  port.SessionRepository
 	discoverySvc *DiscoveryService
 	secret       string
 	baseURL      string // Browser-facing URL (editor iframe src)
@@ -37,7 +36,6 @@ func NewTokenService(
 	tokenRepo port.TokenRepository,
 	fileSvc port.FileService,
 	authSvc port.AuthService,
-	sessionRepo port.SessionRepository,
 	discoverySvc *DiscoveryService,
 	secret string,
 	baseURL string,
@@ -48,7 +46,6 @@ func NewTokenService(
 		tokenRepo:    tokenRepo,
 		fileSvc:      fileSvc,
 		authSvc:      authSvc,
-		sessionRepo:  sessionRepo,
 		discoverySvc: discoverySvc,
 		secret:       secret,
 		baseURL:      strings.TrimSuffix(baseURL, "/"),
@@ -126,17 +123,6 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, docum
 
 	if err := s.tokenRepo.Create(ctx, accessToken); err != nil {
 		return nil, fmt.Errorf("store token: %w", err)
-	}
-
-	session := &model.WOPISession{
-		ID:        uuid.New(),
-		FileID:    documentID,
-		ActorID:   actorID,
-		TokenID:   accessToken.ID,
-		CreatedAt: now,
-	}
-	if err := s.sessionRepo.Create(ctx, session); err != nil {
-		return nil, fmt.Errorf("create session: %w", err)
 	}
 
 	return &TokenIssuanceResult{

@@ -100,6 +100,10 @@ Service:
   `WOPI_SERVER_PORT`
 - `WOPI_CALLBACK_URL` — Collabora callback URL for WOPISrc
   (defaults to WOPI_BASE_URL if not set)
+- `WOPI_FRONTEND_ORIGIN` — origin (scheme://host[:port]) of the page
+  embedding the editor iframe; used as WOPI `PostMessageOrigin` so
+  Collabora can post status updates back to the host frame. Defaults
+  to the origin of `WOPI_BASE_URL`.
 
 ## Full Constitution
 

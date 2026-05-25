@@ -69,9 +69,6 @@ func TestCreateAdapters(t *testing.T) {
 	if a.lockRepo == nil {
 		t.Error("lockRepo is nil")
 	}
-	if a.sessionRepo == nil {
-		t.Error("sessionRepo is nil")
-	}
 	if a.authSvc == nil {
 		t.Error("authSvc is nil")
 	}

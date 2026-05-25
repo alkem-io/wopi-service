@@ -27,6 +27,7 @@ type Config struct {
 	// Service
 	BaseURL         string // Browser-facing URL (editor iframe src)
 	CallbackURL     string // Collabora server-side callback URL (WOPISrc); defaults to BaseURL
+	FrontendOrigin  string // Origin (scheme://host[:port]) of the page embedding the editor iframe; used as WOPI PostMessageOrigin. Defaults to the origin of BaseURL.
 	TokenSecret     string
 	ServerPort      string
 	ProofValidation bool
@@ -124,16 +125,29 @@ func Load() (*Config, error) {
 		FileService: FileServiceConfig{
 			URL: getEnv("FILE_SERVICE_URL", "http://localhost:4003"),
 		},
-		CollaboraURL: getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
-		BaseURL:      getEnv("WOPI_BASE_URL", "http://localhost:8080"),
-		CallbackURL:  getEnv("WOPI_CALLBACK_URL", ""),
-		TokenSecret:  getEnv("WOPI_TOKEN_SECRET", ""),
-		ServerPort:   getEnv("WOPI_SERVER_PORT", "8080"),
+		CollaboraURL:   getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
+		BaseURL:        getEnv("WOPI_BASE_URL", "http://localhost:8080"),
+		CallbackURL:    getEnv("WOPI_CALLBACK_URL", ""),
+		FrontendOrigin: getEnv("WOPI_FRONTEND_ORIGIN", ""),
+		TokenSecret:    getEnv("WOPI_TOKEN_SECRET", ""),
+		ServerPort:     getEnv("WOPI_SERVER_PORT", "8080"),
 	}
 
 	// Default CallbackURL to BaseURL when not explicitly set
 	if cfg.CallbackURL == "" {
 		cfg.CallbackURL = cfg.BaseURL
+	}
+
+	// Default FrontendOrigin to the origin (scheme://host[:port]) of BaseURL.
+	// In typical deployments the editor iframe is served from the same domain
+	// as the embedding application, so BaseURL's origin is the correct value.
+	// Override via WOPI_FRONTEND_ORIGIN for split-domain setups.
+	if cfg.FrontendOrigin == "" {
+		origin, err := originOf(cfg.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("derive WOPI_FRONTEND_ORIGIN from WOPI_BASE_URL: %w", err)
+		}
+		cfg.FrontendOrigin = origin
 	}
 
 	if cfg.TokenSecret == "" {
@@ -174,6 +188,24 @@ func parseIntStrict(s string) (int, error) {
 		return 0, fmt.Errorf("cannot parse %q as int: %w", s, err)
 	}
 	return v, nil
+}
+
+// originOf returns the URL's origin (scheme://host[:port]). Used to
+// derive WOPI PostMessageOrigin from BaseURL when not configured
+// explicitly. Returns an error for inputs that are not absolute URLs
+// with a scheme and host.
+func originOf(raw string) (string, error) {
+	if raw == "" {
+		return "", fmt.Errorf("empty URL")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("URL %q lacks scheme or host", raw)
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 func parseDuration(s string) (time.Duration, error) {

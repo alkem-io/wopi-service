@@ -119,7 +119,6 @@ func main() {
 type adapters struct {
 	tokenRepo    *postgres.TokenRepository
 	lockRepo     *postgres.LockRepository
-	sessionRepo  *postgres.SessionRepository
 	authSvc      port.AuthService
 	fileSvc      *fileservice.FileClient
 	discoveryCli *collabora.DiscoveryClient
@@ -153,7 +152,6 @@ func createAdapters(pool *pgxpool.Pool, authSvc port.AuthService, cfg *config.Co
 	return adapters{
 		tokenRepo:    postgres.NewTokenRepository(pool),
 		lockRepo:     postgres.NewLockRepository(pool),
-		sessionRepo:  postgres.NewSessionRepository(pool),
 		authSvc:      authSvc,
 		fileSvc:      fileservice.NewFileClient(cfg.FileService.URL),
 		discoveryCli: collabora.NewDiscoveryClient(cfg.CollaboraURL),
@@ -163,12 +161,12 @@ func createAdapters(pool *pgxpool.Pool, authSvc port.AuthService, cfg *config.Co
 func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services {
 	discoverySvc := service.NewDiscoveryService(a.discoveryCli, logger)
 	tokenSvc := service.NewTokenService(
-		a.tokenRepo, a.fileSvc, a.authSvc, a.sessionRepo,
+		a.tokenRepo, a.fileSvc, a.authSvc,
 		discoverySvc, cfg.TokenSecret, cfg.BaseURL, cfg.CallbackURL, logger,
 	)
 	return services{
 		token:     tokenSvc,
-		wopi:      service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, logger),
+		wopi:      service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, cfg.FrontendOrigin, logger),
 		discovery: discoverySvc,
 		cleanup:   service.NewCleanupService(a.tokenRepo, a.lockRepo, logger),
 	}

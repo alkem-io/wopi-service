@@ -42,14 +42,17 @@ func NewFileClient(baseURL string) *FileClient {
 }
 
 // metaResponse matches the GET /internal/file/:id/meta response.
+// CreatedBy is *string because file-service-go marshals it as
+// `omitempty` — absent for documents with no recorded creator.
 type metaResponse struct {
-	ID              string `json:"id"`
-	ExternalID      string `json:"externalID"`
-	MimeType        string `json:"mimeType"`
-	Size            int64  `json:"size"`
-	DisplayName     string `json:"displayName"`
-	CreatedBy       string `json:"createdBy"`
-	AuthorizationID string `json:"authorizationId"`
+	ID              string    `json:"id"`
+	ExternalID      string    `json:"externalID"`
+	MimeType        string    `json:"mimeType"`
+	Size            int64     `json:"size"`
+	DisplayName     string    `json:"displayName"`
+	CreatedBy       *string   `json:"createdBy,omitempty"`
+	AuthorizationID string    `json:"authorizationId"`
+	UpdatedDate     time.Time `json:"updatedDate"`
 }
 
 // FindByID retrieves document metadata from file-service-go.
@@ -78,6 +81,11 @@ func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Do
 		return nil, fmt.Errorf("decode meta response: %w", err)
 	}
 
+	createdBy := ""
+	if meta.CreatedBy != nil {
+		createdBy = *meta.CreatedBy
+	}
+
 	return &model.Document{
 		ID:                    meta.ID,
 		ExternalID:            meta.ExternalID,
@@ -85,6 +93,8 @@ func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Do
 		MimeType:              meta.MimeType,
 		Size:                  meta.Size,
 		AuthorizationPolicyID: meta.AuthorizationID,
+		CreatedBy:             createdBy,
+		UpdatedAt:             meta.UpdatedDate,
 	}, nil
 }
 

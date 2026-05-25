@@ -83,21 +83,6 @@ func (m *mockAuthSvc) CheckPrivilege(_ context.Context, actorID, privilege, _ st
 	return &port.AuthResult{Allowed: allowed, Reason: "mock"}, nil
 }
 
-type mockSessionRepo struct {
-	sessions []*model.WOPISession
-}
-
-func (m *mockSessionRepo) Create(_ context.Context, s *model.WOPISession) error {
-	m.sessions = append(m.sessions, s)
-	return nil
-}
-
-func (m *mockSessionRepo) FindByFileID(_ context.Context, _ string) ([]model.WOPISession, error) {
-	return nil, nil
-}
-
-func (m *mockSessionRepo) DeleteByTokenID(_ context.Context, _ string) error { return nil }
-
 // testDiscoverySvc creates a DiscoveryService with mock discovery data for tests.
 func testDiscoverySvc() *DiscoveryService {
 	data := &port.DiscoveryData{
@@ -145,7 +130,7 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 
 	tokenRepo := newMockTokenRepo()
 	svc := NewTokenService(
-		tokenRepo, fileSvc, authSvc, &mockSessionRepo{},
+		tokenRepo, fileSvc, authSvc,
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -191,7 +176,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 
 	tokenRepo := newMockTokenRepo()
 	svc := NewTokenService(
-		tokenRepo, fileSvc, authSvc, &mockSessionRepo{},
+		tokenRepo, fileSvc, authSvc,
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -212,7 +197,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 
 func TestIssueToken_DocumentNotFound(t *testing.T) {
 	svc := NewTokenService(
-		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
+		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(),
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -236,7 +221,7 @@ func TestIssueToken_NotAuthorized(t *testing.T) {
 	// read not granted
 
 	svc := NewTokenService(
-		newMockTokenRepo(), fileSvc, authSvc, &mockSessionRepo{},
+		newMockTokenRepo(), fileSvc, authSvc,
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -261,7 +246,7 @@ func TestValidateToken_Valid(t *testing.T) {
 	tokenRepo.tokens["valid-token"] = token
 
 	svc := NewTokenService(
-		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
+		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(),
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -286,7 +271,7 @@ func TestValidateToken_Expired(t *testing.T) {
 	}
 
 	svc := NewTokenService(
-		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
+		tokenRepo, newMockFileSvcForToken(), newMockAuthSvc(),
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -302,7 +287,7 @@ func TestValidateToken_Expired(t *testing.T) {
 
 func TestValidateToken_NotFound(t *testing.T) {
 	svc := NewTokenService(
-		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(), &mockSessionRepo{},
+		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(),
 		testDiscoverySvc(),
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)

@@ -26,11 +26,3 @@ type Lock struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
-
-type WopiSession struct {
-	ID        pgtype.UUID        `json:"id"`
-	FileID    string             `json:"file_id"`
-	ActorID   string             `json:"actor_id"`
-	TokenID   pgtype.UUID        `json:"token_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-}

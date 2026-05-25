@@ -25,28 +25,49 @@ func wrapStaleLock(err error) error {
 
 // WOPIService implements the core WOPI use cases.
 type WOPIService struct {
-	fileSvc  port.FileService
-	lockRepo port.LockRepository
-	baseURL  string
-	logger   *zap.Logger
+	fileSvc           port.FileService
+	lockRepo          port.LockRepository
+	baseURL           string
+	postMessageOrigin string
+	logger            *zap.Logger
 }
 
 // NewWOPIService creates a new WOPIService.
+// postMessageOrigin is the embedding page's origin (scheme://host[:port]);
+// Collabora uses it as the `PostMessageOrigin` target for save/connect
+// status notifications back to the host frame. Empty disables the field.
 func NewWOPIService(
 	fileSvc port.FileService,
 	lockRepo port.LockRepository,
 	baseURL string,
+	postMessageOrigin string,
 	logger *zap.Logger,
 ) *WOPIService {
 	return &WOPIService{
-		fileSvc:  fileSvc,
-		lockRepo: lockRepo,
-		baseURL:  baseURL,
-		logger:   logger,
+		fileSvc:           fileSvc,
+		lockRepo:          lockRepo,
+		baseURL:           baseURL,
+		postMessageOrigin: postMessageOrigin,
+		logger:            logger,
 	}
 }
 
 // CheckFileInfo returns WOPI file metadata for a document.
+//
+// WOPI spec invariants this implementation upholds:
+//
+//   - `OwnerId` MUST be stable per-file across all callers. We use the
+//     document's CreatedBy when present; otherwise the document ID (also
+//     stable per file). The previous implementation set this to the
+//     calling actor, which broke Collabora's DocBroker state whenever a
+//     second user opened the same file and observed a different owner.
+//   - `UserId` is per-caller and distinguishes co-editors.
+//   - `LastModifiedTime` is ISO 8601; we emit it only when file-service-go
+//     reports a non-zero update timestamp (the field is optional).
+//   - `ReadOnly` is the explicit inverse of `UserCanWrite` so the editor
+//     reflects the token's permissions without inferring from defaults.
+//   - `PostMessageOrigin` enables Collabora to post save/connection
+//     status messages back to the embedding host frame.
 func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToken) (*model.FileInfo, error) {
 	doc, err := s.fileSvc.FindByID(ctx, token.FileID)
 	if err != nil {
@@ -58,9 +79,19 @@ func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToke
 
 	canWrite := token.HasPermission("write")
 
+	ownerID := doc.CreatedBy
+	if ownerID == "" {
+		ownerID = doc.ID
+	}
+
+	var lastModified string
+	if !doc.UpdatedAt.IsZero() {
+		lastModified = doc.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+
 	return &model.FileInfo{
 		BaseFileName:            doc.DisplayName,
-		OwnerID:                 token.ActorID,
+		OwnerID:                 ownerID,
 		Size:                    doc.Size,
 		UserID:                  token.ActorID,
 		UserFriendlyName:        token.ActorName,
@@ -69,6 +100,9 @@ func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToke
 		SupportsLocks:           true,
 		SupportsUpdate:          canWrite,
 		UserCanNotWriteRelative: true,
+		ReadOnly:                !canWrite,
+		LastModifiedTime:        lastModified,
+		PostMessageOrigin:       s.postMessageOrigin,
 	}, nil
 }
 

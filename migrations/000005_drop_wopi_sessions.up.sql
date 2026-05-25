@@ -1,0 +1,11 @@
+-- Drop the wopi_sessions table.
+--
+-- The table was never read by application code: only INSERT-on-token-issue,
+-- no path consumed the rows. It duplicated information already present in
+-- access_tokens (file_id, actor_id) and grew unbounded because the cleanup
+-- service did not touch it. Removing it eliminates a dead write path and
+-- avoids confusion when investigating session state.
+--
+-- Rolling back recreates the empty table; no data is recoverable because
+-- nothing read the rows in the first place.
+DROP TABLE IF EXISTS wopi_sessions;

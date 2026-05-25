@@ -114,7 +114,7 @@ func reqWithToken(method, path string, body io.Reader, token *model.AccessToken)
 func setupWOPIHandler() (*WOPIHandler, *handlerMockFileService, *handlerMockLockRepo) {
 	fileSvc := newHandlerMockFileService()
 	lockRepo := newHandlerMockLockRepo()
-	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", zap.NewNop())
+	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	handler := NewWOPIHandler(wopiSvc, zap.NewNop())
 	return handler, fileSvc, lockRepo
 }
@@ -363,7 +363,7 @@ func TestTokenHandler_Success(t *testing.T) {
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	discSvc := testHandlerDiscoverySvc()
 	tokenSvc := service.NewTokenService(
-		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		tokenRepo, fileSvc, &stubAuthSvc{},
 		discSvc,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -681,7 +681,7 @@ func TestTokenHandler_DocumentNotFound(t *testing.T) {
 	fileSvc := newHandlerMockFileService()
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
-		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		tokenRepo, fileSvc, &stubAuthSvc{},
 		nil,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -711,7 +711,7 @@ func TestTokenHandler_NotAuthorized(t *testing.T) {
 	denyAuth := &denyAuthSvc{}
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
-		tokenRepo, fileSvc, denyAuth, &stubSessionRepo{},
+		tokenRepo, fileSvc, denyAuth,
 		nil,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -772,11 +772,11 @@ func TestNewRouter_Constructs(t *testing.T) {
 	fileSvc := newHandlerMockFileService()
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
-		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		tokenRepo, fileSvc, &stubAuthSvc{},
 		nil,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
-	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 
 	tokenHandler := NewTokenHandler(tokenSvc, zap.NewNop())
 	wopiHandler := NewWOPIHandler(wopiSvc, zap.NewNop())

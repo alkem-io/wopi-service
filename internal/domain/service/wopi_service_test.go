@@ -121,7 +121,7 @@ func TestCheckFileInfo_Success(t *testing.T) {
 		Size:        2048,
 	}
 
-	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken(docID, "read,write")
 
 	info, err := svc.CheckFileInfo(context.Background(), token)
@@ -147,7 +147,7 @@ func TestCheckFileInfo_ReadOnly(t *testing.T) {
 	fileSvc := newMockFileService()
 	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "file.pdf"}
 
-	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken(docID, "read")
 
 	info, err := svc.CheckFileInfo(context.Background(), token)
@@ -159,8 +159,137 @@ func TestCheckFileInfo_ReadOnly(t *testing.T) {
 	}
 }
 
+// TestCheckFileInfo_OwnerID_FromCreatedBy defends the WOPI spec invariant
+// that OwnerId is stable per-file (file owner identity, not caller identity).
+// Before the fix this returned token.ActorID, which broke Collabora's
+// DocBroker state whenever a second user opened the same document.
+func TestCheckFileInfo_OwnerID_FromCreatedBy(t *testing.T) {
+	docID := uuid.New().String()
+	creatorID := uuid.New().String()
+	fileSvc := newMockFileService()
+	fileSvc.docs[docID] = &model.Document{
+		ID:          docID,
+		DisplayName: "file.docx",
+		CreatedBy:   creatorID,
+	}
+
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
+	token := makeToken(docID, "read,write")
+
+	info, err := svc.CheckFileInfo(context.Background(), token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.OwnerID != creatorID {
+		t.Errorf("OwnerID = %q, want %q (CreatedBy)", info.OwnerID, creatorID)
+	}
+	if info.OwnerID == token.ActorID {
+		t.Error("OwnerID must not equal token.ActorID — that is the previous bug")
+	}
+	if info.UserID != token.ActorID {
+		t.Errorf("UserID = %q, want token.ActorID %q", info.UserID, token.ActorID)
+	}
+}
+
+// TestCheckFileInfo_OwnerID_FallbackToDocumentID covers documents with no
+// recorded creator (legacy data, system-created). OwnerId must still be a
+// stable per-file value — using the document ID guarantees that.
+func TestCheckFileInfo_OwnerID_FallbackToDocumentID(t *testing.T) {
+	docID := uuid.New().String()
+	fileSvc := newMockFileService()
+	fileSvc.docs[docID] = &model.Document{
+		ID:          docID,
+		DisplayName: "file.docx",
+		// CreatedBy intentionally empty
+	}
+
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
+	token := makeToken(docID, "read")
+
+	info, err := svc.CheckFileInfo(context.Background(), token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.OwnerID != docID {
+		t.Errorf("OwnerID = %q, want %q (fallback to document ID)", info.OwnerID, docID)
+	}
+}
+
+// TestCheckFileInfo_LastModifiedTime_FromUpdatedAt confirms we emit
+// LastModifiedTime as ISO 8601 UTC when file-service-go reports one,
+// and omit it when the upstream value is zero.
+func TestCheckFileInfo_LastModifiedTime_FromUpdatedAt(t *testing.T) {
+	docID := uuid.New().String()
+	updated := time.Date(2026, 5, 25, 13, 45, 30, 0, time.UTC)
+	fileSvc := newMockFileService()
+	fileSvc.docs[docID] = &model.Document{
+		ID:        docID,
+		UpdatedAt: updated,
+	}
+
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
+	info, err := svc.CheckFileInfo(context.Background(), makeToken(docID, "read"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.LastModifiedTime != "2026-05-25T13:45:30Z" {
+		t.Errorf("LastModifiedTime = %q, want 2026-05-25T13:45:30Z", info.LastModifiedTime)
+	}
+}
+
+func TestCheckFileInfo_LastModifiedTime_OmittedWhenZero(t *testing.T) {
+	docID := uuid.New().String()
+	fileSvc := newMockFileService()
+	fileSvc.docs[docID] = &model.Document{ID: docID} // UpdatedAt zero
+
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
+	info, err := svc.CheckFileInfo(context.Background(), makeToken(docID, "read"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.LastModifiedTime != "" {
+		t.Errorf("LastModifiedTime = %q, want empty for zero UpdatedAt", info.LastModifiedTime)
+	}
+}
+
+// TestCheckFileInfo_ReadOnly_MirrorsUserCanWrite ensures ReadOnly is the
+// explicit inverse of UserCanWrite — important because Collabora reads
+// both fields when deciding whether to render edit toolbars.
+func TestCheckFileInfo_ReadOnly_MirrorsUserCanWrite(t *testing.T) {
+	docID := uuid.New().String()
+	fileSvc := newMockFileService()
+	fileSvc.docs[docID] = &model.Document{ID: docID}
+
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
+
+	rw, _ := svc.CheckFileInfo(context.Background(), makeToken(docID, "read,write"))
+	if rw.ReadOnly {
+		t.Error("ReadOnly must be false when token has write permission")
+	}
+
+	ro, _ := svc.CheckFileInfo(context.Background(), makeToken(docID, "read"))
+	if !ro.ReadOnly {
+		t.Error("ReadOnly must be true when token lacks write permission")
+	}
+}
+
+func TestCheckFileInfo_PostMessageOrigin(t *testing.T) {
+	docID := uuid.New().String()
+	fileSvc := newMockFileService()
+	fileSvc.docs[docID] = &model.Document{ID: docID}
+
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://app.alkem.io", zap.NewNop())
+	info, err := svc.CheckFileInfo(context.Background(), makeToken(docID, "read"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.PostMessageOrigin != "https://app.alkem.io" {
+		t.Errorf("PostMessageOrigin = %q, want https://app.alkem.io", info.PostMessageOrigin)
+	}
+}
+
 func TestCheckFileInfo_DocumentNotFound(t *testing.T) {
-	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken("nonexistent", "read")
 
 	_, err := svc.CheckFileInfo(context.Background(), token)
@@ -175,7 +304,7 @@ func TestGetFile_Success(t *testing.T) {
 	fileSvc.docs[docID] = &model.Document{ID: docID, ExternalID: "ext-abc"}
 	fileSvc.files[docID] = []byte("file content here")
 
-	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken(docID, "read")
 
 	reader, err := svc.GetFile(context.Background(), token)
@@ -194,7 +323,7 @@ func TestPutFile_Success_NoLock(t *testing.T) {
 	docID := uuid.New().String()
 	fileSvc := newMockFileService()
 	fileSvc.docs[docID] = &model.Document{ID: docID, ExternalID: "old-ext"}
-	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken(docID, "read,write")
 
 	result, err := svc.PutFile(context.Background(), token, "", strings.NewReader("new content"))
@@ -207,7 +336,7 @@ func TestPutFile_Success_NoLock(t *testing.T) {
 }
 
 func TestPutFile_ReadOnlyToken(t *testing.T) {
-	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken("file-1", "read")
 
 	_, err := svc.PutFile(context.Background(), token, "", strings.NewReader("content"))
@@ -225,7 +354,7 @@ func TestPutFile_LockMismatch(t *testing.T) {
 		ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken(docID, "read,write")
 
 	_, err := svc.PutFile(context.Background(), token, "lock-B", strings.NewReader("content"))
@@ -247,7 +376,7 @@ func TestPutFile_LockMatch(t *testing.T) {
 		ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	svc := NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken(docID, "read,write")
 
 	result, err := svc.PutFile(context.Background(), token, "lock-A", strings.NewReader("content"))
@@ -264,7 +393,7 @@ func TestPutFile_LockMatch(t *testing.T) {
 func TestGetFile_DocumentNotFound(t *testing.T) {
 	fileSvc := newMockFileService()
 	// No doc in fileSvc.docs
-	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken("missing-doc", "read")
 
 	_, err := svc.GetFile(context.Background(), token)
@@ -275,7 +404,7 @@ func TestGetFile_DocumentNotFound(t *testing.T) {
 
 func TestCheckFileInfo_ErrorFromRepo(t *testing.T) {
 	fileSvc := &errorFileService{err: context.DeadlineExceeded}
-	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken("doc-1", "read")
 
 	_, err := svc.CheckFileInfo(context.Background(), token)
@@ -288,7 +417,7 @@ func TestGetFile_ErrorFromReadFile(t *testing.T) {
 	fileSvc := newMockFileService()
 	fileSvc.docs["doc-1"] = &model.Document{ID: "doc-1"}
 	// ReadFile will fail because no file for doc-1
-	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken("doc-1", "read")
 
 	_, err := svc.GetFile(context.Background(), token)
@@ -300,7 +429,7 @@ func TestGetFile_ErrorFromReadFile(t *testing.T) {
 func TestPutFile_ErrorFromLockRepo(t *testing.T) {
 	fileSvc := newMockFileService()
 	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
-	svc := NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	token := makeToken("doc-1", "read,write")
 
 	_, err := svc.PutFile(context.Background(), token, "", strings.NewReader("data"))
@@ -311,7 +440,7 @@ func TestPutFile_ErrorFromLockRepo(t *testing.T) {
 
 func TestLock_ErrorFromRepo(t *testing.T) {
 	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 
 	err := svc.Lock(context.Background(), "doc-1", "lock-1")
 	if err == nil {
@@ -321,7 +450,7 @@ func TestLock_ErrorFromRepo(t *testing.T) {
 
 func TestUnlock_ErrorFromRepo(t *testing.T) {
 	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 
 	err := svc.Unlock(context.Background(), "doc-1", "lock-1")
 	if err == nil {
@@ -331,7 +460,7 @@ func TestUnlock_ErrorFromRepo(t *testing.T) {
 
 func TestRefreshLock_ErrorFromRepo(t *testing.T) {
 	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 
 	err := svc.RefreshLock(context.Background(), "doc-1", "lock-1")
 	if err == nil {
@@ -341,7 +470,7 @@ func TestRefreshLock_ErrorFromRepo(t *testing.T) {
 
 func TestUnlockAndRelock_ErrorFromRepo(t *testing.T) {
 	lockRepo := &errorLockRepo{err: context.DeadlineExceeded}
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 
 	err := svc.UnlockAndRelock(context.Background(), "doc-1", "new", "old")
 	if err == nil {
@@ -350,7 +479,7 @@ func TestUnlockAndRelock_ErrorFromRepo(t *testing.T) {
 }
 
 func TestRefreshLock_NoLock(t *testing.T) {
-	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.RefreshLock(context.Background(), "doc-1", "lock-1")
 
 	var conflictErr *LockConflictError
@@ -360,7 +489,7 @@ func TestRefreshLock_NoLock(t *testing.T) {
 }
 
 func TestUnlockAndRelock_NoLock(t *testing.T) {
-	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.UnlockAndRelock(context.Background(), "doc-1", "new", "old")
 
 	var conflictErr *LockConflictError
@@ -410,7 +539,7 @@ func (e *errorLockRepo) DeleteExpired(_ context.Context) (int64, error)      { r
 func TestLock_Acquire(t *testing.T) {
 	docID := uuid.New().String()
 	lockRepo := newMockLockRepo()
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 
 	err := svc.Lock(context.Background(), docID, "lock-1")
 	if err != nil {
@@ -432,7 +561,7 @@ func TestLock_SameID_RefreshesExpiry(t *testing.T) {
 		FileID: docID, LockID: "lock-1", ExpiresAt: oldExpiry,
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.Lock(context.Background(), docID, "lock-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -449,7 +578,7 @@ func TestLock_Conflict(t *testing.T) {
 		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.Lock(context.Background(), docID, "lock-B")
 
 	var conflictErr *LockConflictError
@@ -468,7 +597,7 @@ func TestUnlock_Success(t *testing.T) {
 		FileID: docID, LockID: "lock-1", ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.Unlock(context.Background(), docID, "lock-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -485,7 +614,7 @@ func TestUnlock_Mismatch(t *testing.T) {
 		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.Unlock(context.Background(), docID, "lock-B")
 
 	var conflictErr *LockConflictError
@@ -495,7 +624,7 @@ func TestUnlock_Mismatch(t *testing.T) {
 }
 
 func TestUnlock_NoLock(t *testing.T) {
-	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.Unlock(context.Background(), "file-1", "lock-1")
 
 	var conflictErr *LockConflictError
@@ -515,7 +644,7 @@ func TestRefreshLock_Success(t *testing.T) {
 		FileID: docID, LockID: "lock-1", ExpiresAt: oldExpiry,
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.RefreshLock(context.Background(), docID, "lock-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -532,7 +661,7 @@ func TestRefreshLock_Mismatch(t *testing.T) {
 		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.RefreshLock(context.Background(), docID, "lock-B")
 
 	var conflictErr *LockConflictError
@@ -548,7 +677,7 @@ func TestUnlockAndRelock_Success(t *testing.T) {
 		FileID: docID, LockID: "old-lock", ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.UnlockAndRelock(context.Background(), docID, "new-lock", "old-lock")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -565,7 +694,7 @@ func TestUnlockAndRelock_OldLockMismatch(t *testing.T) {
 		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", zap.NewNop())
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", zap.NewNop())
 	err := svc.UnlockAndRelock(context.Background(), docID, "new-lock", "wrong-old")
 
 	var conflictErr *LockConflictError
