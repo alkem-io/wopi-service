@@ -121,8 +121,11 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid WOPI_MAX_LOCK_LIFETIME: %w", err)
 	}
-	if maxLockLifetime <= 0 {
-		return nil, fmt.Errorf("WOPI_MAX_LOCK_LIFETIME must be positive")
+	// 0 explicitly disables the zombie-lock takeover defence (legacy
+	// unbounded refresh behaviour) — keep that operational mode reachable
+	// from env config. Negative values are nonsensical and rejected.
+	if maxLockLifetime < 0 {
+		return nil, fmt.Errorf("WOPI_MAX_LOCK_LIFETIME must be non-negative (use 0 to disable)")
 	}
 	cfg.MaxLockLifetime = maxLockLifetime
 

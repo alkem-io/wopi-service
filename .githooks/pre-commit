@@ -27,9 +27,10 @@ repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
 if ! command -v apispec >/dev/null 2>&1; then
-    echo "pre-commit: apispec not installed; skipping openapi regeneration." >&2
-    echo "pre-commit: install with 'go install github.com/antst/go-apispec@latest'" >&2
-    exit 0
+    echo "pre-commit: apispec not installed — cannot validate openapi.yaml freshness." >&2
+    echo "pre-commit: install with 'go install github.com/antst/go-apispec/cmd/apispec@latest'" >&2
+    echo "pre-commit: or bypass once with 'git commit --no-verify' (then run 'make openapi' and amend)." >&2
+    exit 1
 fi
 
 # Snapshot current openapi.yaml to detect drift after regenerating.

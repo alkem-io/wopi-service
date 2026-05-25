@@ -219,10 +219,23 @@ func (s *WOPIService) Lock(ctx context.Context, fileID, lockID string) error {
 			err := s.lockRepo.Takeover(ctx, fileID, existing.LockID, lockID,
 				now, now.Add(model.DefaultLockDuration))
 			if errors.Is(err, port.ErrStaleLock) {
-				// Lost the takeover race to a concurrent request. Re-read
-				// state on the next call by reporting a normal conflict
-				// against whatever the winner is now holding.
-				return &LockConflictError{ExistingLockID: existing.LockID}
+				// Lost the takeover race — another caller won and the lock
+				// now holds a different ID than the snapshot we read. Refetch
+				// the current state so the conflict surfaced to Collabora
+				// reflects what's actually in the database; returning the
+				// stale snapshot would point Collabora's X-WOPI-Lock header
+				// at a lockID that no longer exists.
+				latest, findErr := s.lockRepo.FindByFileID(ctx, fileID)
+				if findErr != nil {
+					return fmt.Errorf("refetch lock after takeover race: %w", findErr)
+				}
+				if latest == nil {
+					// Winner already released between our race-loss and the
+					// refetch. Treat as an empty conflict so Collabora knows
+					// to retry without an OldLock value.
+					return &LockConflictError{ExistingLockID: ""}
+				}
+				return &LockConflictError{ExistingLockID: latest.LockID}
 			}
 			return err
 		}

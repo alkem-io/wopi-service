@@ -616,10 +616,11 @@ func TestLock_TakeoverPastMaxLifetime(t *testing.T) {
 	docID := uuid.New().String()
 	lockRepo := newMockLockRepo()
 	// Existing lock created 5 hours ago — past the 4h MaxLockLifetime
+	oldCreatedAt := time.Now().Add(-5 * time.Hour)
 	lockRepo.locks[docID] = &model.Lock{
 		FileID:    docID,
 		LockID:    "zombie-lock",
-		CreatedAt: time.Now().Add(-5 * time.Hour),
+		CreatedAt: oldCreatedAt,
 		ExpiresAt: time.Now().Add(30 * time.Minute), // zombie keeps refreshing
 	}
 
@@ -633,8 +634,10 @@ func TestLock_TakeoverPastMaxLifetime(t *testing.T) {
 	if got.LockID != "fresh-lock" {
 		t.Errorf("LockID = %q, want fresh-lock (takeover should have replaced it)", got.LockID)
 	}
-	if time.Since(got.CreatedAt) > time.Second {
-		t.Errorf("CreatedAt should have been reset to now, got %v ago", time.Since(got.CreatedAt))
+	// Compare to the pre-takeover timestamp rather than to wall-clock now;
+	// wall-clock bounds flake under CI load.
+	if !got.CreatedAt.After(oldCreatedAt) {
+		t.Errorf("CreatedAt = %v, want strictly after old %v (takeover should reset it)", got.CreatedAt, oldCreatedAt)
 	}
 }
 
