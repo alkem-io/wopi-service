@@ -219,6 +219,45 @@ func TestWOPIHandler_PutFile_Success(t *testing.T) {
 	}
 }
 
+// TestWOPIHandler_PutFile_JSONBody defends the Collabora-spec invariant:
+// a successful PutFile must return JSON with LastModifiedTime in the body.
+// When this is missing Collabora logs "Invalid or missing JSON in
+// WOPI::PutFile HTTP_OK response", kills the kit session with EPIPE, and
+// the DocBroker enters "unloading" — subsequent opens of the same file
+// fail with "kind=docunloading" until the unload completes.
+func TestWOPIHandler_PutFile_JSONBody(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID+"/contents", strings.NewReader("bytes"), token)
+	req.Header.Set("X-WOPI-Override", "PUT")
+
+	rr := httptest.NewRecorder()
+	handler.PutFileContents(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var body PutFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("PutFile response body is not valid JSON: %v (body=%q)", err, rr.Body.String())
+	}
+	if body.LastModifiedTime == "" {
+		t.Fatal("LastModifiedTime is empty — Collabora rejects this and kills the kit session")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, body.LastModifiedTime); err != nil {
+		t.Errorf("LastModifiedTime = %q is not RFC3339Nano: %v", body.LastModifiedTime, err)
+	}
+}
+
 // --- Lock operation tests ---
 
 func TestWOPIHandler_Lock_Acquire(t *testing.T) {

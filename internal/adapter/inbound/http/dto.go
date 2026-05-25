@@ -5,6 +5,34 @@ import (
 	"net/http"
 )
 
+// PutFileResponse is the WOPI PutFile success body.
+//
+// Collabora requires JSON with `LastModifiedTime` after every successful
+// PutFile — it uses the value to confirm the host wrote the bytes and to
+// reconcile the editor's in-memory state against the persisted file. When
+// the body is missing or lacks LastModifiedTime, Collabora logs "Invalid
+// or missing JSON in WOPI::PutFile HTTP_OK response" and the kit (editor)
+// process kills its WebSocket with EPIPE. The DocBroker then enters
+// "unloading" state and rejects new session attempts on the same WOPISrc
+// URL until it finishes unloading — surfacing in the browser as "Failed
+// to establish socket connection". Always emit this body on a successful
+// save, even when no upstream timestamp is available, because Collabora
+// treats the missing field as a hard error.
+//
+// Version is included in the body in addition to the X-WOPI-ItemVersion
+// header for clients that consume it from the body.
+type PutFileResponse struct {
+	LastModifiedTime string `json:"LastModifiedTime"`
+	Version          string `json:"Version,omitempty"`
+}
+
+// Render writes the PutFile response as JSON with 200 OK.
+func (r PutFileResponse) Render(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(r)
+}
+
 // TokenIssuanceResponse is returned by POST /wopi/token.
 type TokenIssuanceResponse struct {
 	AccessToken string `json:"accessToken"`

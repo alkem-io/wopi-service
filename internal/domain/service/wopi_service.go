@@ -115,10 +115,14 @@ func (s *WOPIService) GetFile(ctx context.Context, token *model.AccessToken) (io
 	return content, nil
 }
 
-// PutFileResult holds the result of a PutFile operation.
+// PutFileResult holds the result of a PutFile operation. LastModifiedTime
+// is the authoritative timestamp Collabora records for the saved version;
+// it MUST be returned in the JSON body of a successful PutFile or
+// Collabora treats the response as invalid and tears down the kit
+// session (EPIPE → DocBroker unload → next open rejected).
 type PutFileResult struct {
-	Version   string
-	Timestamp string // ISO 8601 for X-COOL-WOPI-Timestamp
+	Version          string
+	LastModifiedTime time.Time
 }
 
 // PutFile saves updated file content via file-service-go.
@@ -143,9 +147,14 @@ func (s *WOPIService) PutFile(ctx context.Context, token *model.AccessToken, loc
 		return nil, fmt.Errorf("write file: %w", err)
 	}
 
+	// LastModifiedTime is sampled at successful-write time. file-service-go
+	// does not currently return an authoritative timestamp from the
+	// store-and-link response, and millisecond-level skew against its
+	// internal updated_date is acceptable — Collabora only needs the
+	// value to be monotonically increasing across saves of the same file.
 	return &PutFileResult{
-		Version:   result.ExternalID,
-		Timestamp: "", // Will be set by handler from current time
+		Version:          result.ExternalID,
+		LastModifiedTime: time.Now().UTC(),
 	}, nil
 }
 
