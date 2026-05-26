@@ -127,6 +127,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/http.tokenRequest'
+        required: true
       responses:
         "200":
           content:

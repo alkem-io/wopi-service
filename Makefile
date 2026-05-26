@@ -1,4 +1,4 @@
-.PHONY: build run test lint generate openapi docker-build docker-up docker-down clean
+.PHONY: build run test lint generate openapi install-hooks docker-build docker-up docker-down clean
 
 # Binary
 BINARY := wopi-service
@@ -17,6 +17,12 @@ generate:
 
 openapi:
 	apispec --dir . --output openapi.yaml --config apispec.yaml --skip-cgo
+
+# Hooks: point git at .githooks/ so pre-commit auto-regenerates openapi.yaml
+# whenever Go sources change. Run once per clone (or after deleting .git/).
+install-hooks:
+	git config core.hooksPath .githooks
+	@echo "Installed git hooks from .githooks/ — bypass with 'git commit --no-verify'."
 
 # Quality
 test:

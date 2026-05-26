@@ -133,3 +133,96 @@ func TestParseDuration_Invalid(t *testing.T) {
 		t.Error("expected error for invalid duration")
 	}
 }
+
+// TestLoad_FrontendOrigin_DerivedFromBaseURL covers the default path
+// where the embedding page lives on the same origin as the editor URL.
+// PostMessageOrigin must equal the BaseURL origin so Collabora can
+// post status updates back to the host frame.
+func TestLoad_FrontendOrigin_DerivedFromBaseURL(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("WOPI_FRONTEND_ORIGIN", "")
+	t.Setenv("WOPI_BASE_URL", "https://alkem.io/browser/abc")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.FrontendOrigin != "https://alkem.io" {
+		t.Errorf("FrontendOrigin = %q, want https://alkem.io", cfg.FrontendOrigin)
+	}
+}
+
+func TestLoad_FrontendOrigin_ExplicitOverride(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("WOPI_BASE_URL", "https://collabora.internal")
+	t.Setenv("WOPI_FRONTEND_ORIGIN", "https://app.alkem.io")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.FrontendOrigin != "https://app.alkem.io" {
+		t.Errorf("FrontendOrigin = %q, want explicit override", cfg.FrontendOrigin)
+	}
+}
+
+// TestLoad_FrontendOrigin_ExplicitCanonicalized: an explicit value with
+// extra path/query is normalized to the bare origin. Avoids subtle
+// runtime mismatches in Collabora's PostMessage origin check.
+func TestLoad_FrontendOrigin_ExplicitCanonicalized(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("WOPI_FRONTEND_ORIGIN", "https://app.alkem.io/some/path?q=1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.FrontendOrigin != "https://app.alkem.io" {
+		t.Errorf("FrontendOrigin = %q, want canonicalized https://app.alkem.io", cfg.FrontendOrigin)
+	}
+}
+
+// TestLoad_FrontendOrigin_ExplicitInvalid: a malformed explicit value
+// must fail startup loud and early rather than silently break Collabora
+// at runtime.
+func TestLoad_FrontendOrigin_ExplicitInvalid(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("WOPI_FRONTEND_ORIGIN", "not-a-url")
+
+	_, err := Load()
+	if err == nil {
+		t.Error("expected error for invalid WOPI_FRONTEND_ORIGIN")
+	}
+}
+
+func TestOriginOf(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{in: "https://alkem.io", want: "https://alkem.io"},
+		{in: "https://alkem.io/browser/abc/cool.html", want: "https://alkem.io"},
+		{in: "http://localhost:8080/path", want: "http://localhost:8080"},
+		{in: "", wantErr: true},
+		{in: "not-a-url", wantErr: true},
+		{in: "/path/only", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			got, err := originOf(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %q", tc.in)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("originOf(%q) error: %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("originOf(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

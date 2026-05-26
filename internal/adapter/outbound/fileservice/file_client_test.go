@@ -62,6 +62,57 @@ func TestFileClient_FindByID_Success(t *testing.T) {
 	}
 }
 
+// TestFileClient_FindByID_PopulatesCreatedByAndUpdatedAt covers the
+// fields we added so the WOPI CheckFileInfo response can set stable
+// OwnerId and accurate LastModifiedTime.
+func TestFileClient_FindByID_PopulatesCreatedByAndUpdatedAt(t *testing.T) {
+	creator := "actor-uuid-abc"
+	updated := time.Date(2026, 5, 25, 13, 45, 30, 123_000_000, time.UTC)
+	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(metaResponse{
+			ID: "doc-1", ExternalID: "ext-1", DisplayName: "report.docx",
+			MimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			Size:     2048, AuthorizationID: "auth-1",
+			CreatedBy:   &creator,
+			UpdatedDate: updated,
+		})
+	}))
+
+	client := NewFileClient(url)
+	doc, err := client.FindByID(context.Background(), "doc-1")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if doc.CreatedBy != creator {
+		t.Errorf("CreatedBy = %q, want %q", doc.CreatedBy, creator)
+	}
+	if !doc.UpdatedAt.Equal(updated) {
+		t.Errorf("UpdatedAt = %v, want %v", doc.UpdatedAt, updated)
+	}
+}
+
+// TestFileClient_FindByID_HandlesMissingCreatedBy covers documents
+// returned by file-service-go without a creator (legacy / system docs).
+// CreatedBy is sent as omitempty and decodes to nil; we surface it as
+// empty string so CheckFileInfo can detect the fallback path.
+func TestFileClient_FindByID_HandlesMissingCreatedBy(t *testing.T) {
+	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Marshal a payload that omits createdBy entirely
+		_, _ = w.Write([]byte(`{"id":"doc-1","externalID":"ext-1","mimeType":"application/pdf","size":1,"displayName":"x.pdf","authorizationId":"auth-1","updatedDate":"2026-01-01T00:00:00Z"}`))
+	}))
+
+	client := NewFileClient(url)
+	doc, err := client.FindByID(context.Background(), "doc-1")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if doc.CreatedBy != "" {
+		t.Errorf("CreatedBy = %q, want empty when omitted", doc.CreatedBy)
+	}
+}
+
 func TestFileClient_FindByID_NotFound(t *testing.T) {
 	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

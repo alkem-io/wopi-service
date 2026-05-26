@@ -127,9 +127,13 @@ func (h *WOPIHandler) putFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lastModified := result.LastModifiedTime.UTC().Format(time.RFC3339Nano)
 	w.Header().Set("X-WOPI-ItemVersion", result.Version)
-	w.Header().Set("X-COOL-WOPI-Timestamp", time.Now().UTC().Format(time.RFC3339))
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("X-COOL-WOPI-Timestamp", lastModified)
+	PutFileResponse{
+		LastModifiedTime: lastModified,
+		Version:          result.Version,
+	}.Render(w)
 }
 
 func (h *WOPIHandler) lock(w http.ResponseWriter, r *http.Request) {

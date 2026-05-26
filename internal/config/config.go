@@ -27,9 +27,11 @@ type Config struct {
 	// Service
 	BaseURL         string // Browser-facing URL (editor iframe src)
 	CallbackURL     string // Collabora server-side callback URL (WOPISrc); defaults to BaseURL
+	FrontendOrigin  string // Origin (scheme://host[:port]) of the page embedding the editor iframe; used as WOPI PostMessageOrigin. Defaults to the origin of BaseURL.
 	TokenSecret     string
 	ServerPort      string
 	ProofValidation bool
+	MaxLockLifetime time.Duration // Hard upper bound on how long a single Collabora lockID can persist (via repeated refreshes). A NEW lockID requesting Lock on a file whose existing lock has lived past this is allowed to take over. Defends against zombie DocBrokers that refresh the lock indefinitely.
 }
 
 // DatabaseConfig holds PostgreSQL connection parameters.
@@ -81,26 +83,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("WOPI_DATABASE_TIMEOUT must be positive")
 	}
 
-	breakerFailures, err := parseUint32Strict(getEnv("AUTH_BREAKER_FAILURE_THRESHOLD", "3"))
+	breakerFailures, breakerTimeout, breakerHalfOpen, err := loadBreakerConfig()
 	if err != nil {
-		return nil, fmt.Errorf("invalid AUTH_BREAKER_FAILURE_THRESHOLD: %w", err)
-	}
-	if breakerFailures == 0 {
-		return nil, fmt.Errorf("AUTH_BREAKER_FAILURE_THRESHOLD must be positive")
-	}
-	breakerTimeout, err := parseIntStrict(getEnv("AUTH_BREAKER_TIMEOUT_SECONDS", "15"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid AUTH_BREAKER_TIMEOUT_SECONDS: %w", err)
-	}
-	if breakerTimeout <= 0 {
-		return nil, fmt.Errorf("AUTH_BREAKER_TIMEOUT_SECONDS must be positive")
-	}
-	breakerHalfOpen, err := parseUint32Strict(getEnv("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS", "2"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS: %w", err)
-	}
-	if breakerHalfOpen == 0 {
-		return nil, fmt.Errorf("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS must be positive")
+		return nil, err
 	}
 
 	cfg := &Config{
@@ -124,17 +109,48 @@ func Load() (*Config, error) {
 		FileService: FileServiceConfig{
 			URL: getEnv("FILE_SERVICE_URL", "http://localhost:4003"),
 		},
-		CollaboraURL: getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
-		BaseURL:      getEnv("WOPI_BASE_URL", "http://localhost:8080"),
-		CallbackURL:  getEnv("WOPI_CALLBACK_URL", ""),
-		TokenSecret:  getEnv("WOPI_TOKEN_SECRET", ""),
-		ServerPort:   getEnv("WOPI_SERVER_PORT", "8080"),
+		CollaboraURL:   getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
+		BaseURL:        getEnv("WOPI_BASE_URL", "http://localhost:8080"),
+		CallbackURL:    getEnv("WOPI_CALLBACK_URL", ""),
+		FrontendOrigin: getEnv("WOPI_FRONTEND_ORIGIN", ""),
+		TokenSecret:    getEnv("WOPI_TOKEN_SECRET", ""),
+		ServerPort:     getEnv("WOPI_SERVER_PORT", "8080"),
 	}
+
+	maxLockLifetime, err := parseDuration(getEnv("WOPI_MAX_LOCK_LIFETIME", "4h"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid WOPI_MAX_LOCK_LIFETIME: %w", err)
+	}
+	// 0 explicitly disables the zombie-lock takeover defence (legacy
+	// unbounded refresh behaviour) — keep that operational mode reachable
+	// from env config. Negative values are nonsensical and rejected.
+	if maxLockLifetime < 0 {
+		return nil, fmt.Errorf("WOPI_MAX_LOCK_LIFETIME must be non-negative (use 0 to disable)")
+	}
+	cfg.MaxLockLifetime = maxLockLifetime
 
 	// Default CallbackURL to BaseURL when not explicitly set
 	if cfg.CallbackURL == "" {
 		cfg.CallbackURL = cfg.BaseURL
 	}
+
+	// FrontendOrigin: explicit value overrides; otherwise derive from BaseURL.
+	// Either way, canonicalize through originOf so we always emit a clean
+	// scheme://host[:port] string as WOPI PostMessageOrigin — a malformed
+	// explicit value (e.g. an accidental trailing path) would otherwise
+	// silently break Collabora's PostMessage origin check at runtime.
+	source := cfg.FrontendOrigin
+	if source == "" {
+		source = cfg.BaseURL
+	}
+	origin, err := originOf(source)
+	if err != nil {
+		if cfg.FrontendOrigin != "" {
+			return nil, fmt.Errorf("invalid WOPI_FRONTEND_ORIGIN: %w", err)
+		}
+		return nil, fmt.Errorf("derive WOPI_FRONTEND_ORIGIN from WOPI_BASE_URL: %w", err)
+	}
+	cfg.FrontendOrigin = origin
 
 	if cfg.TokenSecret == "" {
 		return nil, fmt.Errorf("required environment variable WOPI_TOKEN_SECRET is not set")
@@ -151,6 +167,33 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// loadBreakerConfig parses and validates the AUTH_BREAKER_* env vars.
+// Extracted to keep Load() within cyclomatic-complexity bounds.
+func loadBreakerConfig() (failures uint32, timeoutSecs int, halfOpenMax uint32, err error) {
+	failures, err = parseUint32Strict(getEnv("AUTH_BREAKER_FAILURE_THRESHOLD", "3"))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid AUTH_BREAKER_FAILURE_THRESHOLD: %w", err)
+	}
+	if failures == 0 {
+		return 0, 0, 0, fmt.Errorf("AUTH_BREAKER_FAILURE_THRESHOLD must be positive")
+	}
+	timeoutSecs, err = parseIntStrict(getEnv("AUTH_BREAKER_TIMEOUT_SECONDS", "15"))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid AUTH_BREAKER_TIMEOUT_SECONDS: %w", err)
+	}
+	if timeoutSecs <= 0 {
+		return 0, 0, 0, fmt.Errorf("AUTH_BREAKER_TIMEOUT_SECONDS must be positive")
+	}
+	halfOpenMax, err = parseUint32Strict(getEnv("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS", "2"))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS: %w", err)
+	}
+	if halfOpenMax == 0 {
+		return 0, 0, 0, fmt.Errorf("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS must be positive")
+	}
+	return failures, timeoutSecs, halfOpenMax, nil
 }
 
 func getEnv(key, fallback string) string {
@@ -174,6 +217,24 @@ func parseIntStrict(s string) (int, error) {
 		return 0, fmt.Errorf("cannot parse %q as int: %w", s, err)
 	}
 	return v, nil
+}
+
+// originOf returns the URL's origin (scheme://host[:port]). Used to
+// derive WOPI PostMessageOrigin from BaseURL when not configured
+// explicitly. Returns an error for inputs that are not absolute URLs
+// with a scheme and host.
+func originOf(raw string) (string, error) {
+	if raw == "" {
+		return "", fmt.Errorf("empty URL")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("URL %q lacks scheme or host", raw)
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 func parseDuration(s string) (time.Duration, error) {

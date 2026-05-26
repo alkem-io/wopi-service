@@ -53,17 +53,9 @@ func (s *stubAuthSvc) CheckPrivilege(_ context.Context, _, _, _ string) (*port.A
 	return &port.AuthResult{Allowed: true}, nil
 }
 
-type stubSessionRepo struct{}
-
-func (s *stubSessionRepo) Create(_ context.Context, _ *model.WOPISession) error { return nil }
-func (s *stubSessionRepo) FindByFileID(_ context.Context, _ string) ([]model.WOPISession, error) {
-	return nil, nil
-}
-func (s *stubSessionRepo) DeleteByTokenID(_ context.Context, _ string) error { return nil }
-
 func makeTokenService(repo *memTokenRepo) *service.TokenService {
 	return service.NewTokenService(
-		repo, &stubFileService{}, &stubAuthSvc{}, &stubSessionRepo{},
+		repo, &stubFileService{}, &stubAuthSvc{},
 		nil,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)

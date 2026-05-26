@@ -103,6 +103,16 @@ func (m *handlerMockLockRepo) DeleteByFileID(_ context.Context, fileID, lockID s
 	return nil
 }
 func (m *handlerMockLockRepo) DeleteExpired(_ context.Context) (int64, error) { return 0, nil }
+func (m *handlerMockLockRepo) Takeover(_ context.Context, fileID, oldLockID, newLockID string, newCreatedAt, newExpiresAt time.Time) error {
+	existing, ok := m.locks[fileID]
+	if !ok || existing.LockID != oldLockID {
+		return port.ErrStaleLock
+	}
+	existing.LockID = newLockID
+	existing.CreatedAt = newCreatedAt
+	existing.ExpiresAt = newExpiresAt
+	return nil
+}
 
 // helper: create a request with a token already in context
 func reqWithToken(method, path string, body io.Reader, token *model.AccessToken) *http.Request {
@@ -114,7 +124,7 @@ func reqWithToken(method, path string, body io.Reader, token *model.AccessToken)
 func setupWOPIHandler() (*WOPIHandler, *handlerMockFileService, *handlerMockLockRepo) {
 	fileSvc := newHandlerMockFileService()
 	lockRepo := newHandlerMockLockRepo()
-	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", zap.NewNop())
+	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 	handler := NewWOPIHandler(wopiSvc, zap.NewNop())
 	return handler, fileSvc, lockRepo
 }
@@ -219,6 +229,45 @@ func TestWOPIHandler_PutFile_Success(t *testing.T) {
 	}
 }
 
+// TestWOPIHandler_PutFile_JSONBody defends the Collabora-spec invariant:
+// a successful PutFile must return JSON with LastModifiedTime in the body.
+// When this is missing Collabora logs "Invalid or missing JSON in
+// WOPI::PutFile HTTP_OK response", kills the kit session with EPIPE, and
+// the DocBroker enters "unloading" — subsequent opens of the same file
+// fail with "kind=docunloading" until the unload completes.
+func TestWOPIHandler_PutFile_JSONBody(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID+"/contents", strings.NewReader("bytes"), token)
+	req.Header.Set("X-WOPI-Override", "PUT")
+
+	rr := httptest.NewRecorder()
+	handler.PutFileContents(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var body PutFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("PutFile response body is not valid JSON: %v (body=%q)", err, rr.Body.String())
+	}
+	if body.LastModifiedTime == "" {
+		t.Fatal("LastModifiedTime is empty — Collabora rejects this and kills the kit session")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, body.LastModifiedTime); err != nil {
+		t.Errorf("LastModifiedTime = %q is not RFC3339Nano: %v", body.LastModifiedTime, err)
+	}
+}
+
 // --- Lock operation tests ---
 
 func TestWOPIHandler_Lock_Acquire(t *testing.T) {
@@ -244,7 +293,9 @@ func TestWOPIHandler_Lock_Conflict(t *testing.T) {
 	handler, _, lockRepo := setupWOPIHandler()
 	docID := uuid.New().String()
 	lockRepo.locks[docID] = &model.Lock{
-		FileID: docID, LockID: "lock-A", ExpiresAt: time.Now().Add(30 * time.Minute),
+		FileID: docID, LockID: "lock-A",
+		CreatedAt: time.Now().Add(-5 * time.Minute), // within MaxLockLifetime so we get a real conflict
+		ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
 	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
@@ -363,7 +414,7 @@ func TestTokenHandler_Success(t *testing.T) {
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	discSvc := testHandlerDiscoverySvc()
 	tokenSvc := service.NewTokenService(
-		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		tokenRepo, fileSvc, &stubAuthSvc{},
 		discSvc,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -681,7 +732,7 @@ func TestTokenHandler_DocumentNotFound(t *testing.T) {
 	fileSvc := newHandlerMockFileService()
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
-		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		tokenRepo, fileSvc, &stubAuthSvc{},
 		nil,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -711,7 +762,7 @@ func TestTokenHandler_NotAuthorized(t *testing.T) {
 	denyAuth := &denyAuthSvc{}
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
-		tokenRepo, fileSvc, denyAuth, &stubSessionRepo{},
+		tokenRepo, fileSvc, denyAuth,
 		nil,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
@@ -772,11 +823,11 @@ func TestNewRouter_Constructs(t *testing.T) {
 	fileSvc := newHandlerMockFileService()
 	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
 	tokenSvc := service.NewTokenService(
-		tokenRepo, fileSvc, &stubAuthSvc{}, &stubSessionRepo{},
+		tokenRepo, fileSvc, &stubAuthSvc{},
 		nil,
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
-	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", zap.NewNop())
+	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 
 	tokenHandler := NewTokenHandler(tokenSvc, zap.NewNop())
 	wopiHandler := NewWOPIHandler(wopiSvc, zap.NewNop())

@@ -55,6 +55,9 @@ integration into the Alkemio platform.
 
 ## Development Workflow
 
+- Install the pre-commit hook once per clone: `make install-hooks`. It
+  runs `make openapi` whenever Go sources are staged and aborts the
+  commit if `openapi.yaml` ends up stale — same check CI enforces.
 - Always run `golangci-lint run` before committing
 - Tests must defend real invariants — no coverage-padding tests
 - Root cause analysis is mandatory before any bug fix; document the
@@ -100,6 +103,16 @@ Service:
   `WOPI_SERVER_PORT`
 - `WOPI_CALLBACK_URL` — Collabora callback URL for WOPISrc
   (defaults to WOPI_BASE_URL if not set)
+- `WOPI_FRONTEND_ORIGIN` — origin (scheme://host[:port]) of the page
+  embedding the editor iframe; used as WOPI `PostMessageOrigin` so
+  Collabora can post status updates back to the host frame. Defaults
+  to the origin of `WOPI_BASE_URL`.
+- `WOPI_MAX_LOCK_LIFETIME` (default: `4h`) — hard upper bound on how
+  long a single Collabora lockID can persist via repeated refreshes.
+  A NEW lockID requesting Lock on a file whose existing lock has
+  lived past this is allowed to take over. Defends against zombie
+  DocBrokers that refresh the lock indefinitely. Same-lockID refreshes
+  are never capped.
 
 ## Full Constitution
 
