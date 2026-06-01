@@ -3,11 +3,7 @@ package http
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
 	"net/http"
-	"strings"
 )
 
 type contextKey string
@@ -15,38 +11,42 @@ type contextKey string
 const (
 	actorIDKey   contextKey = "actorID"
 	actorNameKey contextKey = "actorName"
+
+	// HeaderActorID is stamped by Traefik's `alkemio-resolve` forwardAuth
+	// middleware (alkemio-server's /api/auth/resolve). The gateway is
+	// responsible for validating the request's credentials (cookie session
+	// OR Hydra-issued bearer) before stamping. The chain
+	// `strip-client-alkemio-headers` → `alkemio-resolve` ensures
+	// client-supplied X-Alkemio-* are blanked before resolve overwrites
+	// them; this header is server-trusted.
+	HeaderActorID = "X-Alkemio-Actor-Id"
 )
 
-// JWTMiddleware extracts the alkemio_actor_id and user display name from the
-// Oathkeeper-injected JWT. Oathkeeper has already validated the JWT — we only
-// parse the payload to extract claims without re-validating the signature.
-func JWTMiddleware(next http.Handler) http.Handler {
+// ActorHeaderMiddleware extracts the actor id from the X-Alkemio-Actor-Id
+// header set by the gateway. 401 if absent — the gateway didn't authenticate
+// the request.
+//
+// Replaces the legacy `JWTMiddleware`, which decoded an Oathkeeper-minted
+// JWT payload to read `alkemio_actor_id`. Identity is now established at
+// the Traefik forwardAuth layer rather than via in-service JWT inspection.
+//
+// Display name: previously derived from Kratos session traits inlined into
+// the Oathkeeper id_token. Not propagated by the new forwardAuth header.
+// TODO: fetch display name via NATS AuthService (already wired in this
+// service) when issuing a token; until then ActorNameFromContext returns "".
+func ActorHeaderMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
+		actorID := r.Header.Get(HeaderActorID)
+		if actorID == "" {
+			http.Error(w, `{"error":"missing actor identity"}`, http.StatusUnauthorized)
 			return
 		}
-
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-			http.Error(w, `{"error":"invalid authorization header"}`, http.StatusUnauthorized)
-			return
-		}
-
-		claims, err := extractClaimsFromJWT(parts[1])
-		if err != nil || claims.AlkemioActorID == "" {
-			http.Error(w, `{"error":"invalid token: missing actor ID"}`, http.StatusUnauthorized)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), actorIDKey, claims.AlkemioActorID)
-		ctx = context.WithValue(ctx, actorNameKey, claims.ActorDisplayName())
+		ctx := context.WithValue(r.Context(), actorIDKey, actorID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// ActorIDFromContext retrieves the actor ID set by JWTMiddleware.
+// ActorIDFromContext retrieves the actor ID set by ActorHeaderMiddleware.
 func ActorIDFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(actorIDKey).(string); ok {
 		return v
@@ -54,73 +54,13 @@ func ActorIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-// ActorNameFromContext retrieves the actor display name set by JWTMiddleware.
+// ActorNameFromContext retrieves the actor display name if one was set on
+// the context. Currently always returns "" — display name is no longer
+// propagated via auth headers. The TokenHandler is responsible for
+// resolving it from NATS AuthService when needed.
 func ActorNameFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(actorNameKey).(string); ok {
 		return v
 	}
 	return ""
-}
-
-type jwtClaims struct {
-	AlkemioActorID string     `json:"alkemio_actor_id"`
-	Session        jwtSession `json:"session"`
-}
-
-type jwtSession struct {
-	Identity jwtIdentity `json:"identity"`
-}
-
-type jwtIdentity struct {
-	Traits jwtTraits `json:"traits"`
-}
-
-type jwtTraits struct {
-	Name  jwtName `json:"name"`
-	Email string  `json:"email"`
-}
-
-type jwtName struct {
-	First string `json:"first"`
-	Last  string `json:"last"`
-}
-
-// ActorDisplayName returns a human-readable display name from the JWT claims.
-func (c *jwtClaims) ActorDisplayName() string {
-	first := strings.TrimSpace(c.Session.Identity.Traits.Name.First)
-	last := strings.TrimSpace(c.Session.Identity.Traits.Name.Last)
-
-	if first != "" && last != "" {
-		return first + " " + last
-	}
-	if first != "" {
-		return first
-	}
-	if last != "" {
-		return last
-	}
-	// Fallback to email if no name
-	if c.Session.Identity.Traits.Email != "" {
-		return c.Session.Identity.Traits.Email
-	}
-	return ""
-}
-
-func extractClaimsFromJWT(tokenString string) (*jwtClaims, error) {
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, err
-	}
-
-	var claims jwtClaims
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return nil, err
-	}
-
-	return &claims, nil
 }
