@@ -31,9 +31,8 @@ func TestActorHeaderMiddleware_ValidHeader(t *testing.T) {
 }
 
 func TestActorHeaderMiddleware_MissingHeader(t *testing.T) {
-	handler := ActorHeaderMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := ActorHeaderMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatalf("next handler must not be invoked when header is missing")
-		w.WriteHeader(http.StatusOK)
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/wopi/token", nil)
@@ -46,13 +45,27 @@ func TestActorHeaderMiddleware_MissingHeader(t *testing.T) {
 }
 
 func TestActorHeaderMiddleware_EmptyHeader(t *testing.T) {
-	handler := ActorHeaderMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := ActorHeaderMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatalf("next handler must not be invoked when header is empty")
-		w.WriteHeader(http.StatusOK)
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/wopi/token", nil)
 	req.Header.Set(HeaderActorID, "")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestActorHeaderMiddleware_WhitespaceOnlyHeader(t *testing.T) {
+	handler := ActorHeaderMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatalf("next handler must not be invoked when header is whitespace-only")
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", nil)
+	req.Header.Set(HeaderActorID, "   ")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 

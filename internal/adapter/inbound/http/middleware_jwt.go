@@ -4,6 +4,7 @@ package http
 import (
 	"context"
 	"net/http"
+	"strings"
 )
 
 type contextKey string
@@ -36,7 +37,7 @@ const (
 // service) when issuing a token; until then ActorNameFromContext returns "".
 func ActorHeaderMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		actorID := r.Header.Get(HeaderActorID)
+		actorID := strings.TrimSpace(r.Header.Get(HeaderActorID))
 		if actorID == "" {
 			http.Error(w, `{"error":"missing actor identity"}`, http.StatusUnauthorized)
 			return
