@@ -8,7 +8,7 @@ info:
     WOPI protocol host service for Collabora Online integration into
     the Alkemio platform. Provides token issuance, document editing
     (CheckFileInfo, GetFile, PutFile), locking, and WOPI discovery.
-  version: 1.0.0
+  version: 1.1.0
   contact:
     name: Alkemio Foundation
     url: https://alkem.io

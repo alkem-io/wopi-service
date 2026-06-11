@@ -37,8 +37,9 @@ func NewRouter(deps RouterDeps) chi.Router {
 	// Discovery — no auth (public info)
 	r.Handle("/wopi/discovery", deps.DiscoveryHandler)
 
-	// Token issuance — behind Oathkeeper (JWT auth)
-	r.With(JWTMiddleware).Post("/wopi/token", deps.TokenHandler.ServeHTTP)
+	// Token issuance — identity supplied by Traefik's alkemio-resolve
+	// forwardAuth as X-Alkemio-Actor-Id header.
+	r.With(ActorHeaderMiddleware).Post("/wopi/token", deps.TokenHandler.ServeHTTP)
 
 	// WOPI protocol endpoints — access token auth + proof validation
 	r.Group(func(sub chi.Router) {

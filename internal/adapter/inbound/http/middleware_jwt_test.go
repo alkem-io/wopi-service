@@ -1,48 +1,38 @@
 package http
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func makeJWT(claims map[string]string) string {
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	payload, _ := json.Marshal(claims)
-	payloadEnc := base64.RawURLEncoding.EncodeToString(payload)
-	sig := base64.RawURLEncoding.EncodeToString([]byte("fake-signature"))
-	return header + "." + payloadEnc + "." + sig
-}
+// File kept as `middleware_jwt_test.go` for git-history continuity. The
+// JWT-based middleware was replaced by `ActorHeaderMiddleware` when identity
+// extraction moved to the Traefik `alkemio-resolve` forwardAuth gateway.
 
-func TestJWTMiddleware_ValidToken(t *testing.T) {
-	token := makeJWT(map[string]string{"alkemio_actor_id": "actor-123"})
-
-	var capturedActorID string
-	handler := JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedActorID = ActorIDFromContext(r.Context())
+func TestActorHeaderMiddleware_ValidHeader(t *testing.T) {
+	var captured string
+	handler := ActorHeaderMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = ActorIDFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/wopi/token", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set(HeaderActorID, "actor-123")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", rr.Code)
+		t.Fatalf("expected 200, got %d", rr.Code)
 	}
-	if capturedActorID != "actor-123" {
-		t.Errorf("actorID = %q, want actor-123", capturedActorID)
+	if captured != "actor-123" {
+		t.Fatalf("expected actor id 'actor-123', got %q", captured)
 	}
 }
 
-func TestJWTMiddleware_MissingHeader(t *testing.T) {
-	called := false
-	handler := JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
+func TestActorHeaderMiddleware_MissingHeader(t *testing.T) {
+	handler := ActorHeaderMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatalf("next handler must not be invoked when header is missing")
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/wopi/token", nil)
@@ -50,73 +40,43 @@ func TestJWTMiddleware_MissingHeader(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rr.Code)
-	}
-	if called {
-		t.Error("downstream handler should not be called on auth failure")
+		t.Fatalf("expected 401, got %d", rr.Code)
 	}
 }
 
-func TestJWTMiddleware_InvalidFormat(t *testing.T) {
-	called := false
-	handler := JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
+func TestActorHeaderMiddleware_EmptyHeader(t *testing.T) {
+	handler := ActorHeaderMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatalf("next handler must not be invoked when header is empty")
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/wopi/token", nil)
-	req.Header.Set("Authorization", "NotBearer token")
+	req.Header.Set(HeaderActorID, "")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rr.Code)
-	}
-	if called {
-		t.Error("downstream handler should not be called on auth failure")
+		t.Fatalf("expected 401, got %d", rr.Code)
 	}
 }
 
-func TestJWTMiddleware_MissingActorID(t *testing.T) {
-	token := makeJWT(map[string]string{"sub": "some-subject"})
-
-	called := false
-	handler := JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
+func TestActorHeaderMiddleware_WhitespaceOnlyHeader(t *testing.T) {
+	handler := ActorHeaderMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatalf("next handler must not be invoked when header is whitespace-only")
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/wopi/token", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set(HeaderActorID, "   ")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rr.Code)
-	}
-	if called {
-		t.Error("downstream handler should not be called on auth failure")
+		t.Fatalf("expected 401, got %d", rr.Code)
 	}
 }
 
-func TestJWTMiddleware_MalformedJWT(t *testing.T) {
-	handler := JWTMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodPost, "/wopi/token", nil)
-	req.Header.Set("Authorization", "Bearer not.a.valid-base64!")
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rr.Code)
-	}
-}
-
-func TestActorIDFromContext_Empty(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	if got := ActorIDFromContext(req.Context()); got != "" {
-		t.Errorf("ActorIDFromContext() = %q, want empty", got)
+func TestActorNameFromContext_DefaultsToEmpty(t *testing.T) {
+	got := ActorNameFromContext(httptest.NewRequest(http.MethodGet, "/", nil).Context())
+	if got != "" {
+		t.Fatalf("expected '' from new context, got %q", got)
 	}
 }
