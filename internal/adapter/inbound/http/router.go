@@ -26,7 +26,10 @@ func NewRouter(deps RouterDeps) chi.Router {
 
 	// Global middleware
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// RealIP is deprecated upstream (spoofable headers); here it only feeds
+	// the request logger's remoteAddr field — identity/authz never read
+	// r.RemoteAddr. Kept for log continuity; revisit separately.
+	r.Use(middleware.RealIP) //nolint:staticcheck // SA1019: see comment above
 	r.Use(middleware.Recoverer)
 	r.Use(RequestLogger(deps.Logger))
 

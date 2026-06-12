@@ -11,17 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
 
 // startH2CServer starts an h2c-capable test server on a random port.
 func startH2CServer(t *testing.T, handler http.Handler) string {
 	t.Helper()
-	h2s := &http2.Server{}
-	srv := &http.Server{Handler: h2c.NewHandler(handler, h2s), ReadHeaderTimeout: 5 * time.Second} //nolint:mnd // test timeout
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	srv := &http.Server{Handler: handler, Protocols: protocols, ReadHeaderTimeout: 5 * time.Second} //nolint:mnd // test timeout
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
