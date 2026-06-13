@@ -17,10 +17,11 @@ spec:
     spec:
       containers:
         - name: alkemio-wopi-service
-          image: alkemio/wopi-service:v0.0.1
+          image: alkemio/wopi-service:v0.1.0
+          imagePullPolicy: Always
           ports:
-            - containerPort: 8080
-              name: http
+            - name: http
+              containerPort: 8080
           env:
             - name: WOPI_DATABASE_HOST
               valueFrom:
@@ -46,17 +47,6 @@ spec:
               value: "wopi"
             - name: WOPI_DATABASE_TIMEOUT
               value: "5s"
-            - name: AUTH_SERVICE_URL
-              value: "http://alkemio-authorization-evaluation-service:6060"
-            - name: FILE_SERVICE_URL
-              value: "http://alkemio-file-service-service:4003"
-            - name: WOPI_COLLABORA_URL
-              value: "http://collabora:9980"
-            - name: WOPI_BASE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: alkemio-config
-                  key: WOPI_BASE_URL
             - name: WOPI_TOKEN_SECRET
               valueFrom:
                 secretKeyRef:
@@ -64,13 +54,32 @@ spec:
                   key: WOPI_TOKEN_SECRET
             - name: WOPI_SERVER_PORT
               value: "8080"
-          livenessProbe:
-            httpGet:
-              path: /live
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 5
+            - name: AUTH_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: alkemio-config
+                  key: AUTH_SERVICE_URL
+            - name: FILE_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: alkemio-config
+                  key: FILE_SERVICE_URL
+            - name: WOPI_COLLABORA_URL
+              value: "http://collabora:9980"
+            - name: VITE_APP_ALKEMIO_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: alkemio-config
+                  key: VITE_APP_ALKEMIO_DOMAIN
+            - name: WOPI_BASE_URL
+              value: "$(VITE_APP_ALKEMIO_DOMAIN)"
+            - name: WOPI_CALLBACK_URL
+              value: "http://alkemio-wopi-service:8080"
+            - name: WOPI_PROOF_VALIDATION
+              value: "false"
+          # Readiness: checks dependencies (DB, NATS). Pulls the pod from the
+          # Service when deps are unreachable so traffic doesn't hit a broken
+          # instance.
           readinessProbe:
             httpGet:
               path: /health
@@ -78,6 +87,16 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
+          # Liveness: process-local check only, no deps. Restarting the pod when
+          # the DB is down would not fix anything; the separate /live endpoint
+          # avoids amplifying an outage.
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 5
           resources:
             requests:
               cpu: 100m
@@ -85,6 +104,10 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
       affinity:
         podAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
