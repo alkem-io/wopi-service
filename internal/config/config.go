@@ -18,7 +18,7 @@ type Config struct {
 	NATS    NATSConfig
 	AuthSvc AuthSvcConfig
 
-	// file-service-go (file read/write)
+	// file-service (file read/write)
 	FileService FileServiceConfig
 
 	// Collabora Online
@@ -68,7 +68,7 @@ type AuthSvcConfig struct {
 	BreakerHalfOpenMax uint32
 }
 
-// FileServiceConfig holds file-service-go connection parameters.
+// FileServiceConfig holds file-service connection parameters.
 type FileServiceConfig struct {
 	URL string
 }

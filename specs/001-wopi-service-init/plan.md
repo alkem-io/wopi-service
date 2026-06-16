@@ -11,28 +11,28 @@ The service exposes a token issuance endpoint (behind Oathkeeper) and
 WOPI REST endpoints (CheckFileInfo, GetFile, PutFile, Lock/Unlock).
 Authorization is checked via NATS auth-evaluation-service. Document
 metadata comes from Alkemio's PostgreSQL (read-only). File content is
-read/written through file-service-go. Access tokens and locks are
+read/written through file-service. Access tokens and locks are
 managed in the service's own PostgreSQL database (sqlc/pgx v5).
 
 ## Technical Context
 
 **Language/Version**: Go 1.26
 **Primary Dependencies**: chi v5 (HTTP router), pgx v5 (PostgreSQL driver), sqlc (query generation), golang-migrate (migrations), zap (structured logging), nats.go (NATS client, optional), golang.org/x/net/http2 (h2c), sony/gobreaker (circuit breaker)
-**Storage**: Own PostgreSQL for local state (access tokens, locks, sessions); document metadata and file content via file-service-go
+**Storage**: Own PostgreSQL for local state (access tokens, locks, sessions); document metadata and file content via file-service
 **Testing**: `go test` with table-driven tests; in-memory adapters, pgxmock, in-process NATS for unit tests
 **Target Platform**: Linux server (containerized)
 **Project Type**: Web service (WOPI host)
 **Performance Goals**: Low-frequency WOPI requests (handful per minute per document)
-**Constraints**: Must integrate with Oathkeeper, authorization-evaluation-service (h2c or NATS), and file-service-go
+**Constraints**: Must integrate with Oathkeeper, authorization-evaluation-service (h2c or NATS), and file-service
 **Scale/Scope**: Single-service deployment alongside Alkemio stack
 
 ## Constitution Check
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Hexagonal Architecture | PASS | Domain layer with ports/adapters; adapters for HTTP, Postgres, NATS, file-service-go |
+| I. Hexagonal Architecture | PASS | Domain layer with ports/adapters; adapters for HTTP, Postgres, NATS, file-service |
 | II. WOPI Protocol Compliance | PASS | All required endpoints specified in contracts |
-| III. Alkemio Integration First | PASS | Auth via NATS, files via file-service-go, metadata via Alkemio DB |
+| III. Alkemio Integration First | PASS | Auth via NATS, files via file-service, metadata via Alkemio DB |
 | IV. Type-Safe Database Access | PASS | sqlc + pgx v5; .sql files for queries; golang-migrate for migrations |
 | V. Security by Design | PASS | Token validation on every WOPI request; proof key validation; Oathkeeper JWT on token issuance; NATS auth check |
 | VI. Test-First Development | PASS | Tests before implementation per workflow |
@@ -75,7 +75,7 @@ internal/
 │   │   ├── session_repository.go           # Driven port: session CRUD
 │   │   ├── document_repository.go          # Driven port: Alkemio DB document lookup
 │   │   ├── auth_service.go                 # Driven port: NATS authorization check
-│   │   ├── file_service.go                 # Driven port: file-service-go read/write
+│   │   ├── file_service.go                 # Driven port: file-service read/write
 │   │   └── discovery_client.go             # Driven port: Collabora discovery
 │   └── service/
 │       ├── wopi_service.go                 # Core WOPI use cases
@@ -109,7 +109,7 @@ internal/
 │       ├── authbreaker/
 │       │   └── breaker.go                  # Circuit breaker wrapper (shared)
 │       ├── fileservice/
-│       │   └── file_client.go              # HTTP client for file-service-go
+│       │   └── file_client.go              # HTTP client for file-service
 │       └── collabora/
 │           └── discovery_client.go         # HTTP client for Collabora discovery XML
 └── config/
@@ -142,7 +142,7 @@ go.sum
 **Structure Decision**: Hexagonal architecture with `internal/` for
 compiler-enforced encapsulation. Domain layer has zero infrastructure
 imports. Adapters split into inbound (HTTP) and outbound (own Postgres,
-Alkemio DB, NATS, file-service-go HTTP, Collabora HTTP). Single
+Alkemio DB, NATS, file-service HTTP, Collabora HTTP). Single
 `cmd/server/` entry point handles DI wiring and migration execution.
 
 ## Complexity Tracking

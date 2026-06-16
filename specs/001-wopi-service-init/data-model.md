@@ -84,7 +84,7 @@ The following data is NOT persisted in the WOPI service database:
 
 - **File metadata** (name, size, owner, modified time) — looked up
   from Alkemio PostgreSQL database (read-only)
-- **File content** — read/written via file-service-go private
+- **File content** — read/written via file-service private
   endpoints
 - **Actor identity** — extracted from Oathkeeper JWT on token
   issuance
