@@ -1,5 +1,5 @@
 // Package fileservice implements the file I/O and document metadata adapter
-// using file-service-go's cluster-internal HTTP endpoints.
+// using file-service's cluster-internal HTTP endpoints.
 package fileservice
 
 import (
@@ -20,7 +20,7 @@ import (
 )
 
 // FileClient implements port.FileService and port.DocumentRepository
-// via file-service-go's private endpoints using h2c (HTTP/2 cleartext).
+// via file-service's private endpoints using h2c (HTTP/2 cleartext).
 type FileClient struct {
 	baseURL    string
 	httpClient *http.Client
@@ -42,7 +42,7 @@ func NewFileClient(baseURL string) *FileClient {
 }
 
 // metaResponse matches the GET /internal/file/:id/meta response.
-// CreatedBy is *string because file-service-go marshals it as
+// CreatedBy is *string because file-service marshals it as
 // `omitempty` — absent for documents with no recorded creator.
 type metaResponse struct {
 	ID              string    `json:"id"`
@@ -55,7 +55,7 @@ type metaResponse struct {
 	UpdatedDate     time.Time `json:"updatedDate"`
 }
 
-// FindByID retrieves document metadata from file-service-go.
+// FindByID retrieves document metadata from file-service.
 func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Document, error) {
 	url := fmt.Sprintf("%s/internal/file/%s/meta", c.baseURL, documentID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

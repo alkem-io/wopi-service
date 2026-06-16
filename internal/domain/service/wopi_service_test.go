@@ -227,7 +227,7 @@ func TestCheckFileInfo_OwnerID_FallbackToDocumentID(t *testing.T) {
 }
 
 // TestCheckFileInfo_LastModifiedTime_FromUpdatedAt confirms we emit
-// LastModifiedTime as ISO 8601 UTC when file-service-go reports one,
+// LastModifiedTime as ISO 8601 UTC when file-service reports one,
 // and omit it when the upstream value is zero.
 func TestCheckFileInfo_LastModifiedTime_FromUpdatedAt(t *testing.T) {
 	docID := uuid.New().String()

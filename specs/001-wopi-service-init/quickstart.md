@@ -5,7 +5,7 @@
 - Go 1.26
 - PostgreSQL (running, with a database created for WOPI service)
 - Authorization-evaluation-service (running, h2c or NATS)
-- file-service-go (running, reachable)
+- file-service (running, reachable)
 - Collabora Online (running, reachable)
 - Oathkeeper (running, configured for WOPI token endpoint)
 

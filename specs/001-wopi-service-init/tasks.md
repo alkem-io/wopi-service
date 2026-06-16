@@ -77,7 +77,7 @@
 
 - [x] T029 Implement DocumentRepository adapter in `internal/adapter/outbound/alkemiodb/document_repository.go` — read-only pgx connection to Alkemio DB, query document table by ID
 - [x] T030 [P] Implement AuthService adapter in `internal/adapter/outbound/nats/auth_service.go` — NATS request-reply on `auth.evaluate` per contracts/integration-services.md
-- [x] T031 [P] Implement FileService adapter in `internal/adapter/outbound/fileservice/file_client.go` — HTTP client for file-service-go private endpoints (GET/PUT/HEAD)
+- [x] T031 [P] Implement FileService adapter in `internal/adapter/outbound/fileservice/file_client.go` — HTTP client for file-service private endpoints (GET/PUT/HEAD)
 - [x] T032 [P] Implement DiscoveryClient adapter in `internal/adapter/outbound/collabora/discovery_client.go` — HTTP GET to Collabora `/hosting/discovery`, parse XML
 
 ### Application Entry Point
@@ -104,13 +104,13 @@
 ### Implementation for User Story 1
 
 - [x] T038 [US1] Implement TokenService in `internal/domain/service/token_service.go` — GenerateToken (URL-safe Base64, 8h TTL), ValidateToken (DB lookup, expiry check), IssueToken (extract actor from JWT, lookup document, check auth via NATS, create token)
-- [x] T039 [US1] Implement WOPIService core use cases in `internal/domain/service/wopi_service.go` — CheckFileInfo (lookup document in Alkemio DB, build FileInfo response), GetFile (get externalID from Alkemio DB, read from file-service-go), PutFile (validate lock, write via file-service-go store-and-link)
+- [x] T039 [US1] Implement WOPIService core use cases in `internal/domain/service/wopi_service.go` — CheckFileInfo (lookup document in Alkemio DB, build FileInfo response), GetFile (get externalID from Alkemio DB, read from file-service), PutFile (validate lock, write via file-service store-and-link)
 - [x] T040 [US1] Implement Oathkeeper JWT extraction middleware in `internal/adapter/inbound/http/middleware_jwt.go` — validate JWT via JWKS, extract `alkemio_actor_id`, inject into request context
 - [x] T041 [US1] Implement token issuance handler in `internal/adapter/inbound/http/token_handler.go` — POST /wopi/token, extract actor from JWT middleware, call TokenService.IssueToken, return token + TTL + wopiSrc
 - [x] T042 [US1] Implement WOPI access token validation middleware in `internal/adapter/inbound/http/middleware_auth.go` — extract `access_token` from query param, validate via TokenService, inject actor/file context
 - [x] T043 [US1] Implement WOPI proof key validation middleware in `internal/adapter/inbound/http/middleware_proof.go` — verify X-WOPI-Proof/ProofOld/TimeStamp headers (RSA SHA-256, 20min window)
 - [x] T044 [US1] Implement WOPI endpoint handlers in `internal/adapter/inbound/http/wopi_handler.go` — CheckFileInfo (GET), GetFile (GET /contents), PutFile (POST /contents), dispatch on X-WOPI-Override
-- [x] T045 [US1] Implement health check handler in `internal/adapter/inbound/http/health_handler.go` — check own DB, NATS, file-service-go connectivity
+- [x] T045 [US1] Implement health check handler in `internal/adapter/inbound/http/health_handler.go` — check own DB, NATS, file-service connectivity
 - [x] T046 [US1] Implement chi router setup in `internal/adapter/inbound/http/router.go` — mount token endpoint (with JWT middleware), WOPI routes (with auth + proof middlewares), health endpoint, discovery endpoint
 
 **Checkpoint**: User Story 1 fully functional — token issuance + CheckFileInfo/GetFile/PutFile work end-to-end

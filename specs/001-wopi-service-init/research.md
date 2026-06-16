@@ -41,7 +41,7 @@ internal/
         repository.go                       # Implements domain ports
       alkemiodb/                            # Read-only Alkemio DB adapter
       nats/                                 # Auth-evaluation-service adapter
-      fileservice/                          # file-service-go HTTP client adapter
+      fileservice/                          # file-service HTTP client adapter
       collabora/                            # Discovery HTTP client adapter
   config/                                   # Environment config loading
 migrations/                                 # SQL migration files
@@ -74,13 +74,13 @@ eliminates the need for RabbitMQ INFO pattern.
 - Privileges used: `read`, `update-content`
 - Has circuit breaker, retry logic, LRU policy cache built in
 
-## 6. File I/O — file-service-go
+## 6. File I/O — file-service
 
-**Decision**: HTTP calls to file-service-go private endpoints
-**Rationale**: file-service-go is the universal file I/O gateway for
+**Decision**: HTTP calls to file-service private endpoints
+**Rationale**: file-service is the universal file I/O gateway for
 the Alkemio platform. Using it decouples the WOPI service from the
 actual storage backend (local, S3, etc.).
-**Reference**: `/Users/antst/work/alkemio/file-service-go`
+**Reference**: `/Users/antst/work/alkemio/file-service`
 **Endpoints used**:
 - `GET /internal/storage/:externalID` — read file content (for GetFile)
 - `PUT /internal/storage/document/:documentId` — write file + update
@@ -141,7 +141,7 @@ NATS:
 - `NATS_URL` — NATS server URL
 
 File service:
-- `FILE_SERVICE_URL` — file-service-go base URL
+- `FILE_SERVICE_URL` — file-service base URL
 
 Service-specific:
 - `WOPI_COLLABORA_URL` — Collabora Online base URL

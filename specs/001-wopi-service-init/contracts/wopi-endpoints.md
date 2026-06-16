@@ -91,7 +91,7 @@ GET /wopi/files/{file_id}?access_token=<token>
 GET /wopi/files/{file_id}/contents?access_token=<token>
 ```
 
-**Flow**: Read file from file-service-go `GET /internal/storage/:externalID`
+**Flow**: Read file from file-service `GET /internal/storage/:externalID`
 
 **Response** `200 OK`: Raw binary file content.
 **Response header**: `X-WOPI-ItemVersion` (optional)
@@ -112,7 +112,7 @@ POST /wopi/files/{file_id}/contents?access_token=<token>
 
 **Request body**: Full binary file content.
 
-**Flow**: Write file via file-service-go
+**Flow**: Write file via file-service
 `PUT /internal/storage/document/:documentId` with binary body
 
 **Response headers**:

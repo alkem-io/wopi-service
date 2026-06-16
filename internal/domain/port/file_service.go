@@ -15,7 +15,7 @@ type FileWriteResult struct {
 	Size       int64  `json:"size"`
 }
 
-// FileService provides file read/write and document metadata via file-service-go.
+// FileService provides file read/write and document metadata via file-service.
 type FileService interface {
 	// FindByID retrieves document metadata by UUID. Returns nil if not found.
 	FindByID(ctx context.Context, documentID string) (*model.Document, error)

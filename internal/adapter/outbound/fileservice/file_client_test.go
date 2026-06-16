@@ -92,7 +92,7 @@ func TestFileClient_FindByID_PopulatesCreatedByAndUpdatedAt(t *testing.T) {
 }
 
 // TestFileClient_FindByID_HandlesMissingCreatedBy covers documents
-// returned by file-service-go without a creator (legacy / system docs).
+// returned by file-service without a creator (legacy / system docs).
 // CreatedBy is sent as omitempty and decodes to nil; we surface it as
 // empty string so CheckFileInfo can detect the fallback path.
 func TestFileClient_FindByID_HandlesMissingCreatedBy(t *testing.T) {
