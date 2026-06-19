@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -16,12 +17,15 @@ import (
 // WOPIHandler handles WOPI protocol endpoints.
 type WOPIHandler struct {
 	wopiSvc *service.WOPIService
+	window  *service.ContributionWindow
 	logger  *zap.Logger
 }
 
-// NewWOPIHandler creates a new WOPIHandler.
-func NewWOPIHandler(wopiSvc *service.WOPIService, logger *zap.Logger) *WOPIHandler {
-	return &WOPIHandler{wopiSvc: wopiSvc, logger: logger}
+// NewWOPIHandler creates a new WOPIHandler. window may be nil (contribution
+// tracking is best-effort and optional); callers that want tracking pass a
+// live *service.ContributionWindow.
+func NewWOPIHandler(wopiSvc *service.WOPIService, window *service.ContributionWindow, logger *zap.Logger) *WOPIHandler {
+	return &WOPIHandler{wopiSvc: wopiSvc, window: window, logger: logger}
 }
 
 // CheckFileInfo handles GET /wopi/files/{fileID}.
@@ -108,6 +112,13 @@ func (h *WOPIHandler) putFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lockID := r.Header.Get("X-WOPI-Lock")
+
+	// Eligibility gate (FR-001): a genuine user modification (not autosave/no-op)
+	// marks the document's window. In-memory flag toggle — off the save path,
+	// no added save latency. Collabora sends "true" only for human edits.
+	if h.window != nil && isModifiedByUser(r) {
+		h.window.MarkModified(token.FileID)
+	}
 
 	result, err := h.wopiSvc.PutFile(r.Context(), token, lockID, r.Body)
 	if err != nil {
@@ -210,6 +221,13 @@ func (h *WOPIHandler) handleLockError(w http.ResponseWriter, err error) {
 	}
 	h.logger.Error("lock operation failed", zap.Error(err))
 	http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+}
+
+// isModifiedByUser reports whether Collabora flagged this PutFile as a genuine
+// user modification via X-COOL-WOPI-IsModifiedByUser. Autosaves / no-op saves
+// omit it or send "false".
+func isModifiedByUser(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("X-COOL-WOPI-IsModifiedByUser"), "true")
 }
 
 // RegisterWOPIRoutes registers WOPI protocol routes on a chi router group.

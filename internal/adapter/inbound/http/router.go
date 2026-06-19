@@ -16,6 +16,7 @@ type RouterDeps struct {
 	WOPIHandler      *WOPIHandler
 	HealthHandler    *HealthHandler
 	DiscoveryHandler *DiscoveryHandler
+	ContributionWnd  *service.ContributionWindow
 	ProofValidation  bool
 	Logger           *zap.Logger
 }
@@ -48,6 +49,9 @@ func NewRouter(deps RouterDeps) chi.Router {
 	r.Group(func(sub chi.Router) {
 		sub.Use(TokenAuthMiddleware(deps.TokenSvc))
 		sub.Use(ProofMiddleware(deps.ProofValidation, deps.DiscoverySvc, deps.Logger))
+		// Record active actors per document for contribution windowing (FR-002/003).
+		// Runs after auth so the validated token is in context.
+		sub.Use(ContributionMiddleware(deps.ContributionWnd))
 		RegisterWOPIRoutes(sub, deps.WOPIHandler)
 	})
 
