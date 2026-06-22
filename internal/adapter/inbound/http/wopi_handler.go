@@ -113,13 +113,6 @@ func (h *WOPIHandler) putFile(w http.ResponseWriter, r *http.Request) {
 
 	lockID := r.Header.Get("X-WOPI-Lock")
 
-	// Eligibility gate (FR-001): a genuine user modification (not autosave/no-op)
-	// marks the document's window. In-memory flag toggle — off the save path,
-	// no added save latency. Collabora sends "true" only for human edits.
-	if h.window != nil && isModifiedByUser(r) {
-		h.window.MarkModified(token.FileID)
-	}
-
 	result, err := h.wopiSvc.PutFile(r.Context(), token, lockID, r.Body)
 	if err != nil {
 		var conflictErr *service.LockConflictError
@@ -136,6 +129,14 @@ func (h *WOPIHandler) putFile(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		}
 		return
+	}
+
+	// Eligibility gate (FR-001): only a successful save of a genuine user
+	// modification (not autosave/no-op, not a failed write) marks the document's
+	// window. In-memory flag toggle — no added save latency. Collabora sends
+	// "true" only for human edits.
+	if h.window != nil && isModifiedByUser(r) {
+		h.window.MarkModified(token.FileID)
 	}
 
 	lastModified := result.LastModifiedTime.UTC().Format(time.RFC3339Nano)

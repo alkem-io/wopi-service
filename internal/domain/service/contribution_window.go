@@ -187,7 +187,7 @@ func (c *ContributionWindow) flush() {
 		}
 		emitted++
 		c.emitted.Add(1)
-		c.logger.Info("contribution event published",
+		c.logger.Info("document activity event emitted",
 			zap.String("eventType", eventType),
 			zap.String("topic", topic),
 			zap.String("documentId", fileID),
@@ -200,8 +200,9 @@ func (c *ContributionWindow) flush() {
 	}
 }
 
-// EmittedCount returns the number of contribution events published so far
-// (observability, FR-011).
+// EmittedCount returns the number of events successfully handed to the publisher
+// so far (observability, FR-011). It counts accepted handoffs, not guaranteed
+// broker delivery — a best-effort or no-op publisher still increments it.
 func (c *ContributionWindow) EmittedCount() int64 { return c.emitted.Load() }
 
 // PublishFailureCount returns the number of dropped/failed publishes

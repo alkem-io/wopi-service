@@ -26,6 +26,8 @@ func TestLoad_Defaults(t *testing.T) {
 	for _, key := range []string{
 		"WOPI_DATABASE_HOST", "WOPI_DATABASE_PORT", "WOPI_DATABASE_NAME",
 		"NATS_URL", "FILE_SERVICE_URL", "WOPI_SERVER_PORT",
+		"RABBITMQ_URL", "RABBITMQ_HOST", "RABBITMQ_PORT", "RABBITMQ_USER",
+		"RABBITMQ_PASSWORD", "CONTRIBUTION_WINDOW",
 	} {
 		t.Setenv(key, "")
 	}
