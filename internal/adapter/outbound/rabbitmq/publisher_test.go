@@ -20,7 +20,7 @@ func TestEnvelope_MatchesNestJSEmitShape(t *testing.T) {
 		ReadonlyUsers: []map[string]string{{"id": "B"}},
 	}
 
-	raw, err := json.Marshal(envelope{Pattern: "collaboration-collabora-document-contribution", Data: payload})
+	raw, err := json.Marshal(envelope{Pattern: "collaboration-office-document-contribution", Data: payload})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestEnvelope_MatchesNestJSEmitShape(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)
 	}
-	if decoded.Pattern != "collaboration-collabora-document-contribution" {
+	if decoded.Pattern != "collaboration-office-document-contribution" {
 		t.Errorf("pattern = %q", decoded.Pattern)
 	}
 

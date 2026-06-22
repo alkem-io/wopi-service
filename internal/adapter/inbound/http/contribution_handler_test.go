@@ -18,12 +18,14 @@ import (
 // stubPublisher records publishes and can be made to fail, for handler-level
 // best-effort tests.
 type stubPublisher struct {
-	calls   int
-	failErr error
+	calls     int
+	lastTopic string
+	failErr   error
 }
 
-func (s *stubPublisher) Publish(_ string, _ any) error {
+func (s *stubPublisher) Publish(topic string, _ any) error {
 	s.calls++
+	s.lastTopic = topic
 	return s.failErr
 }
 func (s *stubPublisher) Close() error { return nil }
@@ -47,10 +49,11 @@ func putReq(docID string, body string, token *model.AccessToken, modified bool) 
 }
 
 // T012: PutFile marks the window modified ONLY when X-COOL-WOPI-IsModifiedByUser
-// is true; an autosave/no-op save (header absent/false) does not, so the window
-// publishes nothing.
+// is true. A genuine edit yields a CONTRIBUTION event; an autosave/no-op save
+// (header absent/false) leaves the doc unmodified, so the active doc yields a
+// VIEW event (T018a/FR-012) — never a contribution event.
 func TestPutFile_MarksModified_OnlyWhenHeaderTrue(t *testing.T) {
-	t.Run("modified header true -> event", func(t *testing.T) {
+	t.Run("modified header true -> contribution event", func(t *testing.T) {
 		pub := &stubPublisher{}
 		handler, fileSvc, window := setupWOPIHandlerWithWindow(pub)
 		docID := uuid.New().String()
@@ -69,9 +72,12 @@ func TestPutFile_MarksModified_OnlyWhenHeaderTrue(t *testing.T) {
 		if pub.calls != 1 {
 			t.Fatalf("expected 1 published event, got %d", pub.calls)
 		}
+		if pub.lastTopic != service.ContributionTopic {
+			t.Fatalf("topic = %q, want %q (ContributionTopic)", pub.lastTopic, service.ContributionTopic)
+		}
 	})
 
-	t.Run("autosave (no header) -> no event", func(t *testing.T) {
+	t.Run("autosave (no header) -> view event, not contribution", func(t *testing.T) {
 		pub := &stubPublisher{}
 		handler, fileSvc, window := setupWOPIHandlerWithWindow(pub)
 		docID := uuid.New().String()
@@ -86,8 +92,11 @@ func TestPutFile_MarksModified_OnlyWhenHeaderTrue(t *testing.T) {
 		}
 
 		window.Flush()
-		if pub.calls != 0 {
-			t.Fatalf("expected no published event for autosave, got %d", pub.calls)
+		if pub.calls != 1 {
+			t.Fatalf("expected 1 published view event for an active autosave doc, got %d", pub.calls)
+		}
+		if pub.lastTopic != service.ViewTopic {
+			t.Fatalf("topic = %q, want %q (ViewTopic) — autosave must NOT be a contribution", pub.lastTopic, service.ViewTopic)
 		}
 	})
 }

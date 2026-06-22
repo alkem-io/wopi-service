@@ -57,9 +57,10 @@ func newTestWindow(pub *stubPublisher) *ContributionWindow {
 	return NewContributionWindow(pub, time.Hour, zap.NewNop())
 }
 
-// T012 / SC-007: a window with activity but no genuine modification publishes
-// nothing.
-func TestContributionWindow_NotModified_NoEvent(t *testing.T) {
+// T018a / FR-012: a window with activity but no genuine modification publishes
+// exactly one VIEW event (same body, distinct routing key) — it is no longer
+// dropped.
+func TestContributionWindow_NotModified_EmitsViewEvent(t *testing.T) {
 	pub := &stubPublisher{}
 	w := newTestWindow(pub)
 
@@ -69,8 +70,37 @@ func TestContributionWindow_NotModified_NoEvent(t *testing.T) {
 
 	w.flush()
 
+	events := pub.all()
+	if len(events) != 1 {
+		t.Fatalf("expected exactly 1 view event for an active-but-unmodified window, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.topic != ViewTopic {
+		t.Errorf("topic = %q, want %q (ViewTopic)", ev.topic, ViewTopic)
+	}
+	if ev.payload.DocumentID != "doc-1" {
+		t.Errorf("documentId = %q, want doc-1", ev.payload.DocumentID)
+	}
+	if got, want := ids(ev.payload.WriteUsers), []string{"actor-write"}; !slices.Equal(got, want) {
+		t.Errorf("writeUsers = %v, want %v", got, want)
+	}
+	if got, want := ids(ev.payload.ReadonlyUsers), []string{"actor-read"}; !slices.Equal(got, want) {
+		t.Errorf("readonlyUsers = %v, want %v", got, want)
+	}
+}
+
+// T018a / FR-012: a document with no actors at all emits neither event.
+func TestContributionWindow_NoActors_NoEvent(t *testing.T) {
+	pub := &stubPublisher{}
+	w := newTestWindow(pub)
+
+	// MarkModified without any AddActor — no actor was ever recorded.
+	w.MarkModified("doc-1")
+
+	w.flush()
+
 	if got := len(pub.all()); got != 0 {
-		t.Fatalf("expected no events for an unmodified window, got %d", got)
+		t.Fatalf("expected no events for a doc with no actors, got %d", got)
 	}
 }
 
@@ -150,8 +180,10 @@ func TestContributionWindow_ContinuousEditing_OneDedupedEvent(t *testing.T) {
 	}
 }
 
-// A flush clears state: a subsequent window with no new modification emits
-// nothing for the same document.
+// A flush clears state: the first window emits a contribution event; the next
+// window — same actor active but no genuine modification — starts fresh and so
+// emits a VIEW event (not a contribution one), proving the modified flag and
+// actor sets were cleared.
 func TestContributionWindow_FlushClearsState(t *testing.T) {
 	pub := &stubPublisher{}
 	w := newTestWindow(pub)
@@ -164,27 +196,41 @@ func TestContributionWindow_FlushClearsState(t *testing.T) {
 	w.AddActor("doc-1", "A", true)
 	w.flush()
 
-	if got := len(pub.all()); got != 1 {
-		t.Fatalf("expected 1 event total across both windows, got %d", got)
+	events := pub.all()
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events total across both windows, got %d", len(events))
+	}
+	if events[0].topic != ContributionTopic {
+		t.Errorf("first window topic = %q, want %q", events[0].topic, ContributionTopic)
+	}
+	if events[1].topic != ViewTopic {
+		t.Errorf("second window topic = %q, want %q (state cleared → view, not contribution)", events[1].topic, ViewTopic)
 	}
 }
 
-// Per-document independence: only modified docs emit.
-func TestContributionWindow_OnlyModifiedDocsEmit(t *testing.T) {
+// Per-document independence (T018a): a modified doc emits a contribution event
+// and an active-but-not-modified doc emits a view event — routed by topic.
+func TestContributionWindow_ModifiedAndViewSplitByTopic(t *testing.T) {
 	pub := &stubPublisher{}
 	w := newTestWindow(pub)
 
 	w.AddActor("doc-1", "A", true)
 	w.MarkModified("doc-1")
-	w.AddActor("doc-2", "B", true) // active but not modified
+	w.AddActor("doc-2", "B", true) // active but not modified → view event
 
 	w.flush()
 
-	events := pub.all()
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
+	byDoc := map[string]captured{}
+	for _, ev := range pub.all() {
+		byDoc[ev.payload.DocumentID] = ev
 	}
-	if events[0].payload.DocumentID != "doc-1" {
-		t.Errorf("documentId = %q, want doc-1", events[0].payload.DocumentID)
+	if len(byDoc) != 2 {
+		t.Fatalf("expected events for 2 docs, got %d", len(byDoc))
+	}
+	if got := byDoc["doc-1"].topic; got != ContributionTopic {
+		t.Errorf("doc-1 topic = %q, want %q (ContributionTopic)", got, ContributionTopic)
+	}
+	if got := byDoc["doc-2"].topic; got != ViewTopic {
+		t.Errorf("doc-2 topic = %q, want %q (ViewTopic)", got, ViewTopic)
 	}
 }

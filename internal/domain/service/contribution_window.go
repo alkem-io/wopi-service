@@ -15,7 +15,13 @@ const (
 	// ContributionTopic is the NestJS message pattern (routing key) the server
 	// consumes via @MessagePattern(..., Transport.RMQ). It travels in the
 	// envelope's "pattern" field. Owned by ADR 0001 / feature 003.
-	ContributionTopic = "collaboration-collabora-document-contribution"
+	ContributionTopic = "collaboration-office-document-contribution"
+
+	// ViewTopic is the companion routing key (FR-012): a document that had
+	// activity but was NOT genuinely modified emits the same body on this
+	// distinct pattern instead of being dropped. Same queue, same envelope —
+	// only the envelope's "pattern" field differs. Owned by ADR 0001 / feature 003.
+	ViewTopic = "collaboration-office-document-view"
 
 	// ContributionQueue is the NestJS consumer queue the contribution event is
 	// delivered onto (shared with the memo INFO/SAVE/FETCH patterns). Matches
@@ -53,7 +59,8 @@ func newDocWindow() *docWindow {
 // ContributionWindow tracks, per document (keyed by file_id), whether it was
 // genuinely modified in the current window and which write- and read-capable
 // actors were active on it. On each tick it publishes one aggregate event per
-// modified document, then clears.
+// document with activity — a contribution event if modified, else a view event
+// (FR-012) — then clears.
 //
 // Emission runs entirely on the ticker goroutine — off the WOPI request/save
 // path — so it is inherently best-effort: publish errors are logged, counted,
@@ -132,14 +139,18 @@ func (c *ContributionWindow) Start(ctx context.Context) {
 	}
 }
 
-// Flush publishes one event per modified document and clears the window. It is
-// invoked on each tick; exported so it can be triggered explicitly (e.g. in
-// tests or on a manual drain).
+// Flush publishes one event per document with activity and clears the window.
+// It is invoked on each tick; exported so it can be triggered explicitly (e.g.
+// in tests or on a manual drain).
 func (c *ContributionWindow) Flush() {
 	c.flush()
 }
 
-// flush publishes one event per modified document and clears the window.
+// flush publishes one event per document with activity and clears the window.
+// A modified document emits a contribution event; an active-but-not-modified
+// document emits a companion view event (FR-012); a document with no actors at
+// all emits neither. Both event types share the same body and queue and differ
+// only by routing topic.
 func (c *ContributionWindow) flush() {
 	c.mu.Lock()
 	snapshot := c.docs
@@ -148,8 +159,8 @@ func (c *ContributionWindow) flush() {
 
 	var emitted int
 	for fileID, d := range snapshot {
-		if !d.modified {
-			// Activity without a genuine modification → no event (FR-001/SC-007).
+		if len(d.writeIDs) == 0 && len(d.readIDs) == 0 {
+			// No actors at all → neither event (FR-012).
 			continue
 		}
 		event := contributionEvent{
@@ -157,9 +168,18 @@ func (c *ContributionWindow) flush() {
 			WriteUsers:    toUserRefs(d.writeIDs),
 			ReadonlyUsers: toUserRefs(d.readIDs),
 		}
-		if err := c.publisher.Publish(ContributionTopic, event); err != nil {
+		// Modified → contribution event; active-but-not-modified → view event.
+		topic := ContributionTopic
+		eventType := "contribution"
+		if !d.modified {
+			topic = ViewTopic
+			eventType = "view"
+		}
+		if err := c.publisher.Publish(topic, event); err != nil {
 			c.publishFail.Add(1)
 			c.logger.Warn("contribution publish failed (dropped, best-effort)",
+				zap.String("eventType", eventType),
+				zap.String("topic", topic),
 				zap.String("documentId", fileID),
 				zap.Int("writeUsers", len(event.WriteUsers)),
 				zap.Int("readonlyUsers", len(event.ReadonlyUsers)),
@@ -170,6 +190,8 @@ func (c *ContributionWindow) flush() {
 		emitted++
 		c.emitted.Add(1)
 		c.logger.Info("contribution event published",
+			zap.String("eventType", eventType),
+			zap.String("topic", topic),
 			zap.String("documentId", fileID),
 			zap.Int("writeUsers", len(event.WriteUsers)),
 			zap.Int("readonlyUsers", len(event.ReadonlyUsers)),
