@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,17 +30,14 @@ const (
 	ContributionQueue = "collaboration-document-service"
 )
 
-// userRef is one actor entry in the event ({ "id": "<actorId>" }).
-type userRef struct {
-	ID string `json:"id"`
-}
-
 // contributionEvent is the published message body (ADR 0001):
-// { documentId, writeUsers:[{id}], readonlyUsers:[{id}] }.
+// { documentId, writeUsers:[id], readonlyUsers:[id] } — bare actor-id strings
+// (Elasticsearch indexes a string array as a multi-valued field; the {id}
+// wrapper would flatten to writeUsers.id and isn't needed).
 type contributionEvent struct {
-	DocumentID    string    `json:"documentId"`
-	WriteUsers    []userRef `json:"writeUsers"`
-	ReadonlyUsers []userRef `json:"readonlyUsers"`
+	DocumentID    string   `json:"documentId"`
+	WriteUsers    []string `json:"writeUsers"`
+	ReadonlyUsers []string `json:"readonlyUsers"`
 }
 
 // docWindow accumulates per-document state for the current window.
@@ -165,8 +163,8 @@ func (c *ContributionWindow) flush() {
 		}
 		event := contributionEvent{
 			DocumentID:    fileID,
-			WriteUsers:    toUserRefs(d.writeIDs),
-			ReadonlyUsers: toUserRefs(d.readIDs),
+			WriteUsers:    toActorIDs(d.writeIDs),
+			ReadonlyUsers: toActorIDs(d.readIDs),
 		}
 		// Modified → contribution event; active-but-not-modified → view event.
 		topic := ContributionTopic
@@ -210,10 +208,13 @@ func (c *ContributionWindow) EmittedCount() int64 { return c.emitted.Load() }
 // (observability, FR-011).
 func (c *ContributionWindow) PublishFailureCount() int64 { return c.publishFail.Load() }
 
-func toUserRefs(set map[string]struct{}) []userRef {
-	refs := make([]userRef, 0, len(set))
+// toActorIDs returns the set's actor ids as a sorted slice (sorted so the
+// emitted event is deterministic — easier to assert on and diff).
+func toActorIDs(set map[string]struct{}) []string {
+	ids := make([]string, 0, len(set))
 	for id := range set {
-		refs = append(refs, userRef{ID: id})
+		ids = append(ids, id)
 	}
-	return refs
+	sort.Strings(ids)
+	return ids
 }

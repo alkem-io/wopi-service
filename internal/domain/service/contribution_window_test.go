@@ -44,11 +44,8 @@ func (s *stubPublisher) all() []captured {
 	return append([]captured(nil), s.events...)
 }
 
-func ids(refs []userRef) []string {
-	out := make([]string, 0, len(refs))
-	for _, r := range refs {
-		out = append(out, r.ID)
-	}
+func ids(in []string) []string {
+	out := append([]string(nil), in...)
 	sort.Strings(out)
 	return out
 }
