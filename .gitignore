@@ -7,6 +7,9 @@
 *.test
 *.out
 
+# Compiled service binary (make build / make run → go build -o wopi-service)
+/wopi-service
+
 # Go workspace
 vendor/
 

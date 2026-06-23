@@ -25,6 +25,7 @@ import (
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/fileservice"
 	natsadapter "github.com/alkem-io/wopi-service/internal/adapter/outbound/nats"
 	"github.com/alkem-io/wopi-service/internal/adapter/outbound/postgres"
+	"github.com/alkem-io/wopi-service/internal/adapter/outbound/rabbitmq"
 	"github.com/alkem-io/wopi-service/internal/config"
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 	"github.com/alkem-io/wopi-service/internal/domain/service"
@@ -79,10 +80,12 @@ func main() {
 		HalfOpenMax:      cfg.AuthSvc.BreakerHalfOpenMax,
 	})
 
-	adapters := createAdapters(wopiPool, authSvc, cfg)
+	adapters := createAdapters(wopiPool, authSvc, cfg, logger)
+	defer func() { _ = adapters.publisher.Close() }()
 	services := createServices(adapters, cfg, logger)
 
 	go services.cleanup.Start(ctx)
+	go services.contribution.Start(ctx)
 
 	// Prime discovery cache — needed for editor URL resolution and proof validation
 	if _, err := services.discovery.GetDiscovery(ctx); err != nil {
@@ -97,6 +100,7 @@ func main() {
 		WOPIHandler:      handlers.wopi,
 		HealthHandler:    handlers.health,
 		DiscoveryHandler: handlers.discovery,
+		ContributionWnd:  services.contribution,
 		ProofValidation:  cfg.ProofValidation,
 		Logger:           logger,
 	})
@@ -122,14 +126,16 @@ type adapters struct {
 	authSvc      port.AuthService
 	fileSvc      *fileservice.FileClient
 	discoveryCli *collabora.DiscoveryClient
+	publisher    port.QueuePublisher
 }
 
 // services holds all domain service instances.
 type services struct {
-	token     *service.TokenService
-	wopi      *service.WOPIService
-	discovery *service.DiscoveryService
-	cleanup   *service.CleanupService
+	token        *service.TokenService
+	wopi         *service.WOPIService
+	discovery    *service.DiscoveryService
+	cleanup      *service.CleanupService
+	contribution *service.ContributionWindow
 }
 
 // httpHandlers holds all inbound HTTP handler instances.
@@ -148,14 +154,27 @@ func connectNATS(url string) (*nats.Conn, error) {
 	return nats.Connect(url)
 }
 
-func createAdapters(pool *pgxpool.Pool, authSvc port.AuthService, cfg *config.Config) adapters {
+func createAdapters(pool *pgxpool.Pool, authSvc port.AuthService, cfg *config.Config, logger *zap.Logger) adapters {
 	return adapters{
 		tokenRepo:    postgres.NewTokenRepository(pool),
 		lockRepo:     postgres.NewLockRepository(pool),
 		authSvc:      authSvc,
 		fileSvc:      fileservice.NewFileClient(cfg.FileService.URL),
 		discoveryCli: collabora.NewDiscoveryClient(cfg.CollaboraURL),
+		publisher:    newPublisher(cfg, logger),
 	}
+}
+
+// newPublisher returns a live RabbitMQ publisher when a broker URL is
+// configured, or a no-op publisher otherwise (FR-009 — absent config is never
+// a crash). The publisher targets the NestJS consumer queue.
+func newPublisher(cfg *config.Config, logger *zap.Logger) port.QueuePublisher {
+	if !cfg.RabbitMQ.IsConfigured() {
+		logger.Info("contribution publisher: no broker configured, using no-op (FR-009)")
+		return rabbitmq.NewNoopPublisher()
+	}
+	logger.Info("contribution publisher: RabbitMQ", zap.String("queue", service.ContributionQueue))
+	return rabbitmq.NewPublisher(cfg.RabbitMQ.URL, service.ContributionQueue, logger)
 }
 
 func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services {
@@ -165,17 +184,18 @@ func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services
 		discoverySvc, cfg.TokenSecret, cfg.BaseURL, cfg.CallbackURL, logger,
 	)
 	return services{
-		token:     tokenSvc,
-		wopi:      service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, cfg.FrontendOrigin, cfg.MaxLockLifetime, logger),
-		discovery: discoverySvc,
-		cleanup:   service.NewCleanupService(a.tokenRepo, a.lockRepo, logger),
+		token:        tokenSvc,
+		wopi:         service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, cfg.FrontendOrigin, cfg.MaxLockLifetime, logger),
+		discovery:    discoverySvc,
+		cleanup:      service.NewCleanupService(a.tokenRepo, a.lockRepo, logger),
+		contribution: service.NewContributionWindow(a.publisher, cfg.ContributionWindow, logger),
 	}
 }
 
 func createHandlers(s services, pool *pgxpool.Pool, nc *nats.Conn, logger *zap.Logger) httpHandlers {
 	return httpHandlers{
 		token:     wopihttp.NewTokenHandler(s.token, logger),
-		wopi:      wopihttp.NewWOPIHandler(s.wopi, logger),
+		wopi:      wopihttp.NewWOPIHandler(s.wopi, s.contribution, logger),
 		health:    wopihttp.NewHealthHandler(pool, nc, logger),
 		discovery: wopihttp.NewDiscoveryHandler(s.discovery, logger),
 	}

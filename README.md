@@ -105,18 +105,58 @@ Zap (logging) · HTTP/2 cleartext (h2c) for cluster-internal calls.
 
 ## Running
 
+There are two ways to run the service locally.
+
+### 1. Locally, via an env file
+
+Run the Go binary directly on your machine, with configuration loaded from a
+local env file. You provide your own PostgreSQL (and the auth / file / Collabora
+services it talks to).
+
 ```bash
-make build          # compile
+cp .env.example .env.local   # then edit .env.local for your setup
+make run                     # builds, sources .env.local, runs the binary
+```
+
+`make run` builds the binary and sources `.env.local` before starting it (it
+falls back to the ambient process environment when the file is absent). Point it
+at a different file with `make run ENV_FILE=.env.dev`. At minimum
+`WOPI_TOKEN_SECRET` and an auth transport (`AUTH_SERVICE_URL` or `NATS_URL`) must
+be set — see [Configuration](#configuration) and the comments in
+`.env.example`.
+
+### 2. Building a Docker image locally
+
+Build the image from the multi-stage `Dockerfile`, or bring up the bundled
+`docker compose` stack that builds the image and also runs a PostgreSQL instance.
+
+```bash
+make docker-build   # build a standalone image: docker build -t alkemio/wopi-service .
+
+make docker-up      # build + start service + PostgreSQL via docker-compose.yml
+make docker-down    # tear the stack down
+```
+
+These are independent: `make docker-up` runs `docker compose up -d`, and because
+`docker-compose.yml` declares `build: .`, compose builds its own image — it does
+*not* reuse the `alkemio/wopi-service` tag from `make docker-build`. The service's
+environment is set inline in `docker-compose.yml` (adjust it for your auth / file
+/ Collabora endpoints).
+
+### Either way
+
+The service runs migrations against its own database on startup, primes the
+discovery cache, then listens on `WOPI_SERVER_PORT` (default `8080`).
+
+Other useful targets:
+
+```bash
+make build          # compile only
 make test           # run tests
 make openapi        # regenerate openapi.yaml (pre-commit hook enforces freshness)
 make install-hooks  # install the pre-commit hook (once per clone)
 golangci-lint run   # lint before committing
-
-docker compose up   # local stack (see docker-compose.yml)
 ```
-
-The service runs migrations against its own database on startup, primes the
-discovery cache, then listens on `WOPI_SERVER_PORT` (default `8080`).
 
 ## Configuration
 
