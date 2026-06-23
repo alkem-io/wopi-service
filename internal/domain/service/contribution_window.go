@@ -31,13 +31,13 @@ const (
 )
 
 // contributionEvent is the published message body (ADR 0001):
-// { documentId, writeUsers:[id], readonlyUsers:[id] } — bare actor-id strings
+// { documentId, writeActors:[id], readonlyActors:[id] } — bare actor-id strings
 // (Elasticsearch indexes a string array as a multi-valued field; the {id}
-// wrapper would flatten to writeUsers.id and isn't needed).
+// wrapper would flatten to writeActors.id and isn't needed).
 type contributionEvent struct {
-	DocumentID    string   `json:"documentId"`
-	WriteUsers    []string `json:"writeUsers"`
-	ReadonlyUsers []string `json:"readonlyUsers"`
+	DocumentID     string   `json:"documentId"`
+	WriteActors    []string `json:"writeActors"`
+	ReadonlyActors []string `json:"readonlyActors"`
 }
 
 // docWindow accumulates per-document state for the current window.
@@ -162,9 +162,9 @@ func (c *ContributionWindow) flush() {
 			continue
 		}
 		event := contributionEvent{
-			DocumentID:    fileID,
-			WriteUsers:    toActorIDs(d.writeIDs),
-			ReadonlyUsers: toActorIDs(d.readIDs),
+			DocumentID:     fileID,
+			WriteActors:    toActorIDs(d.writeIDs),
+			ReadonlyActors: toActorIDs(d.readIDs),
 		}
 		// Modified → contribution event; active-but-not-modified → view event.
 		topic := ContributionTopic
@@ -179,8 +179,8 @@ func (c *ContributionWindow) flush() {
 				zap.String("eventType", eventType),
 				zap.String("topic", topic),
 				zap.String("documentId", fileID),
-				zap.Int("writeUsers", len(event.WriteUsers)),
-				zap.Int("readonlyUsers", len(event.ReadonlyUsers)),
+				zap.Int("writeActors", len(event.WriteActors)),
+				zap.Int("readonlyActors", len(event.ReadonlyActors)),
 				zap.Error(err),
 			)
 			continue
@@ -191,8 +191,8 @@ func (c *ContributionWindow) flush() {
 			zap.String("eventType", eventType),
 			zap.String("topic", topic),
 			zap.String("documentId", fileID),
-			zap.Int("writeUsers", len(event.WriteUsers)),
-			zap.Int("readonlyUsers", len(event.ReadonlyUsers)),
+			zap.Int("writeActors", len(event.WriteActors)),
+			zap.Int("readonlyActors", len(event.ReadonlyActors)),
 		)
 	}
 	if emitted > 0 {

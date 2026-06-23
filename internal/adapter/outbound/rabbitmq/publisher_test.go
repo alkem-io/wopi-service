@@ -10,14 +10,14 @@ import (
 // shape so a regression can't silently break the consumer.
 func TestEnvelope_MatchesNestJSEmitShape(t *testing.T) {
 	type body struct {
-		DocumentID    string   `json:"documentId"`
-		WriteUsers    []string `json:"writeUsers"`
-		ReadonlyUsers []string `json:"readonlyUsers"`
+		DocumentID     string   `json:"documentId"`
+		WriteActors    []string `json:"writeActors"`
+		ReadonlyActors []string `json:"readonlyActors"`
 	}
 	payload := body{
-		DocumentID:    "doc-123",
-		WriteUsers:    []string{"A"},
-		ReadonlyUsers: []string{"B"},
+		DocumentID:     "doc-123",
+		WriteActors:    []string{"A"},
+		ReadonlyActors: []string{"B"},
 	}
 
 	raw, err := json.Marshal(envelope{Pattern: "collaboration-office-document-contribution", Data: payload})
@@ -43,11 +43,11 @@ func TestEnvelope_MatchesNestJSEmitShape(t *testing.T) {
 	if gotData.DocumentID != "doc-123" {
 		t.Errorf("documentId = %q, want doc-123", gotData.DocumentID)
 	}
-	if len(gotData.WriteUsers) != 1 || gotData.WriteUsers[0] != "A" {
-		t.Errorf("writeUsers = %v", gotData.WriteUsers)
+	if len(gotData.WriteActors) != 1 || gotData.WriteActors[0] != "A" {
+		t.Errorf("writeActors = %v", gotData.WriteActors)
 	}
-	if len(gotData.ReadonlyUsers) != 1 || gotData.ReadonlyUsers[0] != "B" {
-		t.Errorf("readonlyUsers = %v", gotData.ReadonlyUsers)
+	if len(gotData.ReadonlyActors) != 1 || gotData.ReadonlyActors[0] != "B" {
+		t.Errorf("readonlyActors = %v", gotData.ReadonlyActors)
 	}
 }
 

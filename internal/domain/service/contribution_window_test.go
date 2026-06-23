@@ -78,11 +78,11 @@ func TestContributionWindow_NotModified_EmitsViewEvent(t *testing.T) {
 	if ev.payload.DocumentID != "doc-1" {
 		t.Errorf("documentId = %q, want doc-1", ev.payload.DocumentID)
 	}
-	if got, want := ids(ev.payload.WriteUsers), []string{"actor-write"}; !slices.Equal(got, want) {
-		t.Errorf("writeUsers = %v, want %v", got, want)
+	if got, want := ids(ev.payload.WriteActors), []string{"actor-write"}; !slices.Equal(got, want) {
+		t.Errorf("writeActors = %v, want %v", got, want)
 	}
-	if got, want := ids(ev.payload.ReadonlyUsers), []string{"actor-read"}; !slices.Equal(got, want) {
-		t.Errorf("readonlyUsers = %v, want %v", got, want)
+	if got, want := ids(ev.payload.ReadonlyActors), []string{"actor-read"}; !slices.Equal(got, want) {
+		t.Errorf("readonlyActors = %v, want %v", got, want)
 	}
 }
 
@@ -124,16 +124,16 @@ func TestContributionWindow_WriteReadSplit(t *testing.T) {
 	if ev.payload.DocumentID != "doc-1" {
 		t.Errorf("documentId = %q, want doc-1", ev.payload.DocumentID)
 	}
-	if got, want := ids(ev.payload.WriteUsers), []string{"A", "B"}; !slices.Equal(got, want) {
-		t.Errorf("writeUsers = %v, want %v", got, want)
+	if got, want := ids(ev.payload.WriteActors), []string{"A", "B"}; !slices.Equal(got, want) {
+		t.Errorf("writeActors = %v, want %v", got, want)
 	}
-	if got, want := ids(ev.payload.ReadonlyUsers), []string{"C"}; !slices.Equal(got, want) {
-		t.Errorf("readonlyUsers = %v, want %v", got, want)
+	if got, want := ids(ev.payload.ReadonlyActors), []string{"C"}; !slices.Equal(got, want) {
+		t.Errorf("readonlyActors = %v, want %v", got, want)
 	}
 }
 
 // T015 edge (spec Assumptions): a modified doc with read-only actors but no
-// write actor still emits, with writeUsers empty. (Chosen rule: emit.)
+// write actor still emits, with writeActors empty. (Chosen rule: emit.)
 func TestContributionWindow_ModifiedNoWriteActor_EmitsEmptyWrite(t *testing.T) {
 	pub := &stubPublisher{}
 	w := newTestWindow(pub)
@@ -147,11 +147,11 @@ func TestContributionWindow_ModifiedNoWriteActor_EmitsEmptyWrite(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	if len(events[0].payload.WriteUsers) != 0 {
-		t.Errorf("writeUsers should be empty, got %v", ids(events[0].payload.WriteUsers))
+	if len(events[0].payload.WriteActors) != 0 {
+		t.Errorf("writeActors should be empty, got %v", ids(events[0].payload.WriteActors))
 	}
-	if got, want := ids(events[0].payload.ReadonlyUsers), []string{"C"}; !slices.Equal(got, want) {
-		t.Errorf("readonlyUsers = %v, want %v", got, want)
+	if got, want := ids(events[0].payload.ReadonlyActors), []string{"C"}; !slices.Equal(got, want) {
+		t.Errorf("readonlyActors = %v, want %v", got, want)
 	}
 }
 
@@ -172,8 +172,8 @@ func TestContributionWindow_ContinuousEditing_OneDedupedEvent(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected exactly 1 event for continuous editing, got %d", len(events))
 	}
-	if got, want := ids(events[0].payload.WriteUsers), []string{"A"}; !slices.Equal(got, want) {
-		t.Errorf("writeUsers = %v, want %v (deduped)", got, want)
+	if got, want := ids(events[0].payload.WriteActors), []string{"A"}; !slices.Equal(got, want) {
+		t.Errorf("writeActors = %v, want %v (deduped)", got, want)
 	}
 }
 
