@@ -116,9 +116,17 @@ regardless of how long the outage lasts.
   record; steady-state (still up, or still down) produces none.
 - **Lock conflicts and authorization denials**: never counted or recorded as
   operational failures — they are expected protocol outcomes.
-- **Stale reachability**: the reported reachability must reflect a check no older
-  than the background refresh interval, so a silent outage cannot go unreported
-  indefinitely.
+- **No health traffic**: reachability is evaluated only during health-endpoint
+  requests; if the endpoint is never called, no probing occurs and reachability is
+  neither updated nor logged. In practice the orchestrator polls the endpoint
+  continuously, so reachability is bounded by that polling cadence.
+
+## Clarifications
+
+### Session 2026-06-24
+
+- Q: How is Collabora reachability determined and refreshed? → A: Probed once per `/health` request; no background ticker and no self-initiated re-probe, regardless of probe outcome. Reachability is evaluated only when the health endpoint is called.
+- Q: What timeout should the per-`/health` Collabora probe use? → A: A short, dedicated probe timeout (~2s), independent of the existing 30s discovery-fetch timeout, so `/health` stays responsive when Collabora hangs.
 
 ## Requirements *(mandatory)*
 
@@ -149,23 +157,30 @@ regardless of how long the outage lasts.
 
 **Collabora reachability**
 
-- **FR-007**: The service MUST track whether Collabora is currently reachable and
-  the time of the last successful contact, updated from every contact attempt the
-  service makes (startup priming, on-demand refresh, and a periodic background
-  refresh).
-- **FR-008**: The service MUST perform a periodic background reachability refresh
-  on a configurable interval (default 60 seconds) so that reported reachability is
-  never staler than that interval.
-- **FR-009**: The health endpoint response MUST report current Collabora
-  reachability and the last-success time, and MUST NOT change the overall health
-  status based on Collabora reachability (Collabora is a soft dependency).
+- **FR-007**: The service MUST determine Collabora reachability by performing
+  exactly one probe of Collabora during each health-endpoint request, and MUST
+  record the resulting reachable/not-reachable state and the time of the last
+  successful probe.
+- **FR-008**: The service MUST NOT probe Collabora on its own schedule.
+  Reachability is evaluated only when the health endpoint is called — there is no
+  background ticker and no self-initiated re-probe, regardless of the probe
+  outcome.
+- **FR-009**: The health endpoint response MUST report Collabora reachability as
+  determined by that request's probe, together with the last-success time, and
+  MUST NOT change the overall health status based on Collabora reachability
+  (Collabora is a soft dependency).
 - **FR-010**: The health endpoint MUST continue to report an unsuccessful overall
   status only when a hard dependency (own database; messaging connection when
   configured) is unavailable.
-- **FR-011**: The service MUST emit exactly one record on each reachability state
-  transition — a warning when reachability is lost, an informational record when
-  it is regained — and MUST NOT emit a record on every check while the state is
-  unchanged.
+- **FR-011**: The service MUST compare each probe result to the previous one and
+  emit exactly one record on a state transition — a warning when reachability is
+  lost, an informational record when it is regained — and MUST NOT emit a record
+  while the state is unchanged across probes.
+- **FR-014**: The Collabora probe MUST use a short, dedicated timeout (~2
+  seconds), independent of the existing 30-second discovery-fetch timeout, so that
+  a hung or slow Collabora results in a prompt "unreachable" determination without
+  delaying the health response or risking the orchestrator's readiness-probe
+  timeout.
 
 **Cross-cutting**
 
@@ -195,9 +210,9 @@ regardless of how long the outage lasts.
 - **SC-001**: 100% of genuine save failures and genuine token-issuance failures
   produce exactly one alertable failure record; routine lock conflicts and
   authorization/not-found/unsupported rejections produce zero failure records.
-- **SC-002**: An on-call engineer can determine whether Collabora is currently
-  reachable from a single health-endpoint query, with the answer reflecting a
-  check no older than the configured refresh interval.
+- **SC-002**: An on-call engineer can determine whether Collabora is reachable
+  from a single health-endpoint query, with the answer reflecting a probe
+  performed during that same query.
 - **SC-003**: A Collabora outage of any duration produces exactly one "lost"
   record and, on recovery, exactly one "regained" record — never a record per
   check.
@@ -223,5 +238,7 @@ regardless of how long the outage lasts.
 - A future move to a metrics-scraping stack is anticipated; the chosen failure and
   reachability observation points are intended to be the same points where
   counters/gauges would later be emitted, so no rework of those points is expected.
-- Default background reachability refresh interval is 60 seconds, overridable via
-  configuration (`WOPI_DISCOVERY_REFRESH_INTERVAL`).
+- Collabora reachability is probed synchronously during each health-endpoint
+  request; there is no background scheduler and no reachability-refresh
+  configuration. (The orchestrator's existing health-poll cadence is therefore
+  what bounds how current the reachability signal is.)
