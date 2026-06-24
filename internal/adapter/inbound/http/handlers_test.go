@@ -125,7 +125,7 @@ func setupWOPIHandler() (*WOPIHandler, *handlerMockFileService, *handlerMockLock
 	fileSvc := newHandlerMockFileService()
 	lockRepo := newHandlerMockLockRepo()
 	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
-	handler := NewWOPIHandler(wopiSvc, zap.NewNop())
+	handler := NewWOPIHandler(wopiSvc, nil, zap.NewNop())
 	return handler, fileSvc, lockRepo
 }
 
@@ -830,7 +830,7 @@ func TestNewRouter_Constructs(t *testing.T) {
 	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 
 	tokenHandler := NewTokenHandler(tokenSvc, zap.NewNop())
-	wopiHandler := NewWOPIHandler(wopiSvc, zap.NewNop())
+	wopiHandler := NewWOPIHandler(wopiSvc, nil, zap.NewNop())
 	discClient := &mockDiscoveryClientForHandler{data: &port.DiscoveryData{}}
 	discSvc := service.NewDiscoveryService(discClient, zap.NewNop())
 	discoveryHandler := NewDiscoveryHandler(discSvc, zap.NewNop())

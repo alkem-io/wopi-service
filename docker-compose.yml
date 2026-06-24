@@ -22,7 +22,7 @@ services:
       WOPI_DATABASE_NAME: wopi
       WOPI_DATABASE_TIMEOUT: 5s
       AUTH_SERVICE_URL: http://authorization-evaluation-service:6060
-      FILE_SERVICE_URL: http://file-service-go:4003
+      FILE_SERVICE_URL: http://file-service:4003
       WOPI_COLLABORA_URL: http://collabora:9980
       WOPI_BASE_URL: http://localhost:8080
       WOPI_TOKEN_SECRET: dev-secret-change-in-production

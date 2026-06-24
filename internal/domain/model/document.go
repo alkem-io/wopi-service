@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// Document represents file metadata sourced from file-service-go.
+// Document represents file metadata sourced from file-service.
 type Document struct {
 	ID                    string
 	ExternalID            string
@@ -18,7 +18,7 @@ type Document struct {
 	// across viewers.
 	CreatedBy string
 
-	// UpdatedAt is the last modification time from file-service-go. Used
+	// UpdatedAt is the last modification time from file-service. Used
 	// to populate WOPI CheckFileInfo `LastModifiedTime`. Zero value means
 	// the upstream did not provide one; emit no LastModifiedTime in that
 	// case (the field is optional in the WOPI spec).

@@ -1,0 +1,221 @@
+package service
+
+import (
+	"context"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"go.uber.org/zap"
+
+	"github.com/alkem-io/wopi-service/internal/domain/port"
+)
+
+const (
+	// ContributionTopic is the NestJS message pattern (routing key) the server
+	// consumes via @MessagePattern(..., Transport.RMQ). It travels in the
+	// envelope's "pattern" field. Owned by ADR 0001 / feature 003.
+	ContributionTopic = "collaboration-office-document-contribution"
+
+	// ViewTopic is the companion routing key (FR-012): a document that had
+	// activity but was NOT genuinely modified emits the same body on this
+	// distinct pattern instead of being dropped. Same queue, same envelope —
+	// only the envelope's "pattern" field differs. Owned by ADR 0001 / feature 003.
+	ViewTopic = "collaboration-office-document-view"
+
+	// ContributionQueue is the NestJS consumer queue the contribution event is
+	// delivered onto (shared with the memo INFO/SAVE/FETCH patterns). Matches
+	// server MessagingQueue.COLLABORATION_DOCUMENT_SERVICE.
+	ContributionQueue = "collaboration-document-service"
+)
+
+// contributionEvent is the published message body (ADR 0001):
+// { documentId, writeActors:[id], readonlyActors:[id] } — bare actor-id strings
+// (Elasticsearch indexes a string array as a multi-valued field; the {id}
+// wrapper would flatten to writeActors.id and isn't needed).
+type contributionEvent struct {
+	DocumentID     string   `json:"documentId"`
+	WriteActors    []string `json:"writeActors"`
+	ReadonlyActors []string `json:"readonlyActors"`
+}
+
+// docWindow accumulates per-document state for the current window.
+type docWindow struct {
+	modified bool
+	writeIDs map[string]struct{}
+	readIDs  map[string]struct{}
+}
+
+func newDocWindow() *docWindow {
+	return &docWindow{
+		writeIDs: make(map[string]struct{}),
+		readIDs:  make(map[string]struct{}),
+	}
+}
+
+// ContributionWindow tracks, per document (keyed by file_id), whether it was
+// genuinely modified in the current window and which write- and read-capable
+// actors were active on it. On each tick it publishes one aggregate event per
+// document with activity — a contribution event if modified, else a view event
+// (FR-012) — then clears.
+//
+// Emission runs entirely on the ticker goroutine — off the WOPI request/save
+// path — so it is inherently best-effort: publish errors are logged, counted,
+// and swallowed (FR-006).
+type ContributionWindow struct {
+	publisher port.QueuePublisher
+	window    time.Duration
+	logger    *zap.Logger
+
+	mu   sync.Mutex
+	docs map[string]*docWindow
+
+	// Observability counters (FR-011).
+	emitted     atomic.Int64 // records published per process lifetime
+	publishFail atomic.Int64 // publish failures / dropped events
+}
+
+// NewContributionWindow creates a window with the given publisher and duration.
+func NewContributionWindow(publisher port.QueuePublisher, window time.Duration, logger *zap.Logger) *ContributionWindow {
+	return &ContributionWindow{
+		publisher: publisher,
+		window:    window,
+		logger:    logger,
+		docs:      make(map[string]*docWindow),
+	}
+}
+
+func (c *ContributionWindow) entryLocked(fileID string) *docWindow {
+	d, ok := c.docs[fileID]
+	if !ok {
+		d = newDocWindow()
+		c.docs[fileID] = d
+	}
+	return d
+}
+
+// MarkModified flags a document as genuinely modified in the current window.
+// Called from PutFile when X-COOL-WOPI-IsModifiedByUser is true (FR-001).
+func (c *ContributionWindow) MarkModified(fileID string) {
+	if fileID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entryLocked(fileID).modified = true
+}
+
+// AddActor records an actor as active on a document in the current window,
+// routed by token permission: write-capable → writeIDs, else readIDs
+// (FR-002/FR-003). Set semantics dedup repeated activity by the same actor.
+func (c *ContributionWindow) AddActor(fileID, actorID string, isWrite bool) {
+	if fileID == "" || actorID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	d := c.entryLocked(fileID)
+	if isWrite {
+		d.writeIDs[actorID] = struct{}{}
+	} else {
+		d.readIDs[actorID] = struct{}{}
+	}
+}
+
+// Start runs the flush ticker until ctx is cancelled.
+func (c *ContributionWindow) Start(ctx context.Context) {
+	ticker := time.NewTicker(c.window)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.flush()
+		}
+	}
+}
+
+// Flush publishes one event per document with activity and clears the window.
+// It is invoked on each tick; exported so it can be triggered explicitly (e.g.
+// in tests or on a manual drain).
+func (c *ContributionWindow) Flush() {
+	c.flush()
+}
+
+// flush publishes one event per document with activity and clears the window.
+// A modified document emits a contribution event; an active-but-not-modified
+// document emits a companion view event (FR-012); a document with no actors at
+// all emits neither. Both event types share the same body and queue and differ
+// only by routing topic.
+func (c *ContributionWindow) flush() {
+	c.mu.Lock()
+	snapshot := c.docs
+	c.docs = make(map[string]*docWindow)
+	c.mu.Unlock()
+
+	var emitted int
+	for fileID, d := range snapshot {
+		if len(d.writeIDs) == 0 && len(d.readIDs) == 0 {
+			// No actors at all → neither event (FR-012).
+			continue
+		}
+		event := contributionEvent{
+			DocumentID:     fileID,
+			WriteActors:    toActorIDs(d.writeIDs),
+			ReadonlyActors: toActorIDs(d.readIDs),
+		}
+		// Modified → contribution event; active-but-not-modified → view event.
+		topic := ContributionTopic
+		eventType := "contribution"
+		if !d.modified {
+			topic = ViewTopic
+			eventType = "view"
+		}
+		if err := c.publisher.Publish(topic, event); err != nil {
+			c.publishFail.Add(1)
+			c.logger.Warn("contribution publish failed (dropped, best-effort)",
+				zap.String("eventType", eventType),
+				zap.String("topic", topic),
+				zap.String("documentId", fileID),
+				zap.Int("writeActors", len(event.WriteActors)),
+				zap.Int("readonlyActors", len(event.ReadonlyActors)),
+				zap.Error(err),
+			)
+			continue
+		}
+		emitted++
+		c.emitted.Add(1)
+		c.logger.Info("document activity event emitted",
+			zap.String("eventType", eventType),
+			zap.String("topic", topic),
+			zap.String("documentId", fileID),
+			zap.Int("writeActors", len(event.WriteActors)),
+			zap.Int("readonlyActors", len(event.ReadonlyActors)),
+		)
+	}
+	if emitted > 0 {
+		c.logger.Debug("contribution window flushed", zap.Int("recordsEmitted", emitted))
+	}
+}
+
+// EmittedCount returns the number of events successfully handed to the publisher
+// so far (observability, FR-011). It counts accepted handoffs, not guaranteed
+// broker delivery — a best-effort or no-op publisher still increments it.
+func (c *ContributionWindow) EmittedCount() int64 { return c.emitted.Load() }
+
+// PublishFailureCount returns the number of dropped/failed publishes
+// (observability, FR-011).
+func (c *ContributionWindow) PublishFailureCount() int64 { return c.publishFail.Load() }
+
+// toActorIDs returns the set's actor ids as a sorted slice (sorted so the
+// emitted event is deterministic — easier to assert on and diff).
+func toActorIDs(set map[string]struct{}) []string {
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}

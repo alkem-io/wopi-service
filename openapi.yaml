@@ -73,6 +73,7 @@ paths:
               schema:
                 type: object
           description: Default response (no response found)
+      summary: CheckFileInfo handles GET /wopi/files/{fileID}.
     post:
       operationId: WOPIHandler.FileOperation
       parameters:
@@ -88,6 +89,7 @@ paths:
               schema:
                 type: object
           description: Default response (no response found)
+      summary: FileOperation handles POST /wopi/files/{fileID} — dispatches on X-WOPI-Override.
   /wopi/files/{fileID}/contents:
     get:
       operationId: WOPIHandler.GetFile
@@ -104,6 +106,7 @@ paths:
               schema:
                 type: object
           description: Default response (no response found)
+      summary: GetFile handles GET /wopi/files/{fileID}/contents.
     post:
       operationId: WOPIHandler.PutFileContents
       parameters:
@@ -119,6 +122,7 @@ paths:
               schema:
                 type: object
           description: Default response (no response found)
+      summary: PutFileContents handles POST /wopi/files/{fileID}/contents.
   /wopi/token:
     post:
       operationId: TokenHandler.ServeHTTP
@@ -183,3 +187,4 @@ paths:
               schema:
                 type: string
           description: Service Unavailable
+      summary: ServeHTTP handles POST /wopi/token.

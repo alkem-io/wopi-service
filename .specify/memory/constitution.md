@@ -264,7 +264,7 @@ without a constitution amendment:
 | HTTP router      | chi v5                   |
 | Logging          | Zap (structured)         |
 | Authorization    | NATS via auth-evaluation-service |
-| File I/O         | file-service-go (HTTP, cluster-internal) |
+| File I/O         | file-service (HTTP, cluster-internal) |
 | WOPI client      | Collabora Online (primary)|
 | Identity         | Oathkeeper JWT (alkemio_actor_id) |
 
@@ -294,7 +294,7 @@ The WOPI service integrates with two primary external systems:
 - Document table provides externalID, authorizationPolicyId,
   displayName, mimeType, and size for WOPI operations.
 
-**file-service-go** (Go, HTTP, cluster-internal):
+**file-service** (Go, HTTP, cluster-internal):
 - Private endpoints for file metadata and content.
 - Metadata via `GET /internal/file/:id/meta`.
 - GetFile reads content via `GET /internal/file/:id/content`.
@@ -308,7 +308,7 @@ The WOPI service integrates with two primary external systems:
 
 **Communication patterns**:
 - NATS for authorization checks (auth-evaluation-service).
-- HTTP for file I/O (file-service-go private endpoints).
+- HTTP for file I/O (file-service private endpoints).
 - HTTP for WOPI protocol endpoints (Collabora → this service).
 - Communication contracts MUST be documented and versioned.
 

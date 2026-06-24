@@ -26,6 +26,8 @@ func TestLoad_Defaults(t *testing.T) {
 	for _, key := range []string{
 		"WOPI_DATABASE_HOST", "WOPI_DATABASE_PORT", "WOPI_DATABASE_NAME",
 		"NATS_URL", "FILE_SERVICE_URL", "WOPI_SERVER_PORT",
+		"RABBITMQ_URL", "RABBITMQ_HOST", "RABBITMQ_PORT", "RABBITMQ_USER",
+		"RABBITMQ_PASSWORD", "CONTRIBUTION_WINDOW",
 	} {
 		t.Setenv(key, "")
 	}
@@ -56,6 +58,59 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.TokenSecret != "test-secret" {
 		t.Errorf("TokenSecret = %q, want test-secret", cfg.TokenSecret)
+	}
+	// Contribution feature defaults: 600s window, no broker (no-op publisher).
+	if cfg.ContributionWindow != 600*time.Second {
+		t.Errorf("ContributionWindow = %v, want 600s", cfg.ContributionWindow)
+	}
+	if cfg.RabbitMQ.IsConfigured() {
+		t.Errorf("RabbitMQ should be unconfigured by default, got URL %q", cfg.RabbitMQ.URL)
+	}
+}
+
+func TestLoad_RabbitMQ_FromURL(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("RABBITMQ_URL", "amqp://guest:guest@rabbit:5672/")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !cfg.RabbitMQ.IsConfigured() {
+		t.Fatal("RabbitMQ should be configured when RABBITMQ_URL is set")
+	}
+	if cfg.RabbitMQ.URL != "amqp://guest:guest@rabbit:5672/" { //nolint:gosec // test fixture URL
+		t.Errorf("RabbitMQ.URL = %q", cfg.RabbitMQ.URL)
+	}
+}
+
+func TestLoad_RabbitMQ_FromComponents(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("RABBITMQ_URL", "")
+	t.Setenv("RABBITMQ_HOST", "rabbit")
+	t.Setenv("RABBITMQ_USER", "u")
+	t.Setenv("RABBITMQ_PASSWORD", "p")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	want := "amqp://u:p@rabbit:5672/" //nolint:gosec // test fixture URL
+	if cfg.RabbitMQ.URL != want {
+		t.Errorf("RabbitMQ.URL = %q, want %q", cfg.RabbitMQ.URL, want)
+	}
+}
+
+func TestLoad_ContributionWindow_Custom(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("CONTRIBUTION_WINDOW", "30s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.ContributionWindow != 30*time.Second {
+		t.Errorf("ContributionWindow = %v, want 30s", cfg.ContributionWindow)
 	}
 }
 

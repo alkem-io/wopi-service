@@ -18,8 +18,14 @@ type Config struct {
 	NATS    NATSConfig
 	AuthSvc AuthSvcConfig
 
-	// file-service-go (file read/write)
+	// file-service (file read/write)
 	FileService FileServiceConfig
+
+	// RabbitMQ (contribution event publishing — optional; absent = no-op publisher)
+	RabbitMQ RabbitMQConfig
+
+	// Contribution windowing
+	ContributionWindow time.Duration
 
 	// Collabora Online
 	CollaboraURL string
@@ -68,9 +74,20 @@ type AuthSvcConfig struct {
 	BreakerHalfOpenMax uint32
 }
 
-// FileServiceConfig holds file-service-go connection parameters.
+// FileServiceConfig holds file-service connection parameters.
 type FileServiceConfig struct {
 	URL string
+}
+
+// RabbitMQConfig holds the broker connection for contribution-event publishing.
+// URL is empty when no broker is configured — the publisher then no-ops (FR-009).
+type RabbitMQConfig struct {
+	URL string
+}
+
+// IsConfigured reports whether a broker URL was supplied.
+func (c RabbitMQConfig) IsConfigured() bool {
+	return c.URL != ""
 }
 
 // Load reads configuration from environment variables.
@@ -109,6 +126,9 @@ func Load() (*Config, error) {
 		FileService: FileServiceConfig{
 			URL: getEnv("FILE_SERVICE_URL", "http://localhost:4003"),
 		},
+		RabbitMQ: RabbitMQConfig{
+			URL: loadRabbitMQURL(),
+		},
 		CollaboraURL:   getEnv("WOPI_COLLABORA_URL", "http://localhost:9980"),
 		BaseURL:        getEnv("WOPI_BASE_URL", "http://localhost:8080"),
 		CallbackURL:    getEnv("WOPI_CALLBACK_URL", ""),
@@ -128,6 +148,15 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("WOPI_MAX_LOCK_LIFETIME must be non-negative (use 0 to disable)")
 	}
 	cfg.MaxLockLifetime = maxLockLifetime
+
+	contributionWindow, err := parseDuration(getEnv("CONTRIBUTION_WINDOW", "600s"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid CONTRIBUTION_WINDOW: %w", err)
+	}
+	if contributionWindow <= 0 {
+		return nil, fmt.Errorf("CONTRIBUTION_WINDOW must be positive")
+	}
+	cfg.ContributionWindow = contributionWindow
 
 	// Default CallbackURL to BaseURL when not explicitly set
 	if cfg.CallbackURL == "" {
@@ -194,6 +223,30 @@ func loadBreakerConfig() (failures uint32, timeoutSecs int, halfOpenMax uint32, 
 		return 0, 0, 0, fmt.Errorf("AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS must be positive")
 	}
 	return failures, timeoutSecs, halfOpenMax, nil
+}
+
+// loadRabbitMQURL builds the broker AMQP URL from either RABBITMQ_URL or the
+// individual RABBITMQ_HOST/PORT/USER/PASSWORD components (mirroring
+// matrix-adapter). Returns "" when no host/URL is configured — the publisher
+// then no-ops (FR-009).
+func loadRabbitMQURL() string {
+	if v := os.Getenv("RABBITMQ_URL"); v != "" {
+		return v
+	}
+	host := os.Getenv("RABBITMQ_HOST")
+	if host == "" {
+		return ""
+	}
+	port := os.Getenv("RABBITMQ_PORT")
+	if port == "" {
+		port = "5672"
+	}
+	user := os.Getenv("RABBITMQ_USER")
+	pass := os.Getenv("RABBITMQ_PASSWORD")
+	if user != "" && pass != "" {
+		return fmt.Sprintf("amqp://%s:%s@%s:%s/", url.QueryEscape(user), url.QueryEscape(pass), host, port)
+	}
+	return fmt.Sprintf("amqp://%s:%s/", host, port)
 }
 
 func getEnv(key, fallback string) string {

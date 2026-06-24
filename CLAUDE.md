@@ -9,7 +9,7 @@ integration into the Alkemio platform.
 - **Database**: PostgreSQL, pgx v5 driver, sqlc for query generation
 - **Authorization**: h2c HTTP (default) or NATS (legacy) to authorization-evaluation-service
 - **Identity**: Oathkeeper JWT (`alkemio_actor_id` claim) on token issuance endpoint
-- **File I/O**: file-service-go private endpoints (HTTP, cluster-internal)
+- **File I/O**: file-service private endpoints (HTTP, cluster-internal)
 - **Logging**: Zap (structured)
 - **HTTP Router**: chi v5
 - **Architecture**: Hexagonal (ports and adapters)
@@ -72,7 +72,7 @@ integration into the Alkemio platform.
 - Auth via NATS `auth.evaluate` (actorId + privilege +
   authorizationPolicyId)
 - Document metadata from Alkemio PostgreSQL (read-only user)
-- File content via file-service-go private endpoints
+- File content via file-service private endpoints
   (`GET /internal/storage/:externalID`,
   `PUT /internal/storage/document/:documentId`)
 - Actor identity from Oathkeeper JWT (`alkemio_actor_id` claim)
@@ -96,7 +96,7 @@ Authorization (h2c preferred, NATS fallback — at least one required):
 - `AUTH_BREAKER_HALF_OPEN_MAX_REQUESTS` (default: 2)
 
 File service:
-- `FILE_SERVICE_URL` (e.g., `http://file-service-go:4003`)
+- `FILE_SERVICE_URL` (e.g., `http://file-service:4003`)
 
 Service:
 - `WOPI_COLLABORA_URL`, `WOPI_BASE_URL`, `WOPI_TOKEN_SECRET`,

@@ -73,7 +73,7 @@ func NewWOPIService(
 //     calling actor, which broke Collabora's DocBroker state whenever a
 //     second user opened the same file and observed a different owner.
 //   - `UserId` is per-caller and distinguishes co-editors.
-//   - `LastModifiedTime` is ISO 8601; we emit it only when file-service-go
+//   - `LastModifiedTime` is ISO 8601; we emit it only when file-service
 //     reports a non-zero update timestamp (the field is optional).
 //   - `ReadOnly` is the explicit inverse of `UserCanWrite` so the editor
 //     reflects the token's permissions without inferring from defaults.
@@ -117,7 +117,7 @@ func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToke
 	}, nil
 }
 
-// GetFile retrieves file content from file-service-go by document ID.
+// GetFile retrieves file content from file-service by document ID.
 func (s *WOPIService) GetFile(ctx context.Context, token *model.AccessToken) (io.ReadCloser, error) {
 	content, err := s.fileSvc.ReadFile(ctx, token.FileID)
 	if err != nil {
@@ -136,7 +136,7 @@ type PutFileResult struct {
 	LastModifiedTime time.Time
 }
 
-// PutFile saves updated file content via file-service-go.
+// PutFile saves updated file content via file-service.
 func (s *WOPIService) PutFile(ctx context.Context, token *model.AccessToken, lockID string, content io.Reader) (*PutFileResult, error) {
 	if !token.HasPermission("write") {
 		return nil, ErrNotAuthorized
@@ -158,7 +158,7 @@ func (s *WOPIService) PutFile(ctx context.Context, token *model.AccessToken, loc
 		return nil, fmt.Errorf("write file: %w", err)
 	}
 
-	// LastModifiedTime is sampled at successful-write time. file-service-go
+	// LastModifiedTime is sampled at successful-write time. file-service
 	// does not currently return an authoritative timestamp from the
 	// store-and-link response, and millisecond-level skew against its
 	// internal updated_date is acceptable — Collabora only needs the

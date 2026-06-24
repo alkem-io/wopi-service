@@ -16,6 +16,7 @@ type RouterDeps struct {
 	WOPIHandler      *WOPIHandler
 	HealthHandler    *HealthHandler
 	DiscoveryHandler *DiscoveryHandler
+	ContributionWnd  *service.ContributionWindow
 	ProofValidation  bool
 	Logger           *zap.Logger
 }
@@ -26,7 +27,10 @@ func NewRouter(deps RouterDeps) chi.Router {
 
 	// Global middleware
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// RealIP is deprecated upstream (spoofable headers); here it only feeds
+	// the request logger's remoteAddr field — identity/authz never read
+	// r.RemoteAddr. Kept for log continuity; revisit separately.
+	r.Use(middleware.RealIP) //nolint:staticcheck // SA1019: see comment above
 	r.Use(middleware.Recoverer)
 	r.Use(RequestLogger(deps.Logger))
 
@@ -45,6 +49,9 @@ func NewRouter(deps RouterDeps) chi.Router {
 	r.Group(func(sub chi.Router) {
 		sub.Use(TokenAuthMiddleware(deps.TokenSvc))
 		sub.Use(ProofMiddleware(deps.ProofValidation, deps.DiscoverySvc, deps.Logger))
+		// Record active actors per document for contribution windowing (FR-002/003).
+		// Runs after auth so the validated token is in context.
+		sub.Use(ContributionMiddleware(deps.ContributionWnd))
 		RegisterWOPIRoutes(sub, deps.WOPIHandler)
 	})
 
