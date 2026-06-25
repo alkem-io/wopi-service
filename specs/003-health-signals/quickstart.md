@@ -76,11 +76,16 @@ go test ./internal/domain/service/... ./internal/adapter/inbound/http/...
 golangci-lint run
 ```
 
-Key assertions:
-- `discovery_service_test.go` — probe sets reachable/lastSuccess; `up→down` logs one
-  Warn, `down→up` one Info; first observation logs nothing; unchanged state silent.
-- `health_handler_test.go` — body carries `collabora`; status is 200 when Collabora
-  is down but Postgres/NATS up; 503 only when a hard dep is down.
-- `token_handler_test.go` — error record on genuine failures; none on 404/403/422.
-- `wopi_handler_test.go` — error record on `write_failed`/`lock_repo_error`; none on
+Key assertions (the suites are consolidated by feature, not per handler):
+- `internal/domain/service/health_signals_test.go` — probe sets reachable/lastSuccess;
+  `up→down` logs one Warn, `down→up` one Info; first observation logs nothing;
+  unchanged state silent; PutFile/token sentinel wrapping and the cold-fetch
+  `ErrDiscoveryFetch` vs stale-cache fallback paths.
+- `internal/adapter/inbound/http/health_signals_handler_test.go` — `/health` body
+  carries `collabora` and stays 200 when Collabora is down but Postgres/NATS up (503
+  only when a hard dep is down); token error record on genuine failures, none on
+  404/403/422; PutFile error record on `write_failed`/`lock_repo_error`, none on
   409/403.
+- `internal/adapter/outbound/collabora/discovery_client_test.go` — non-2xx and
+  2xx-with-non-`wopi-discovery`-body count as unreachable; oversized body bounded by
+  the `LimitReader` cap.

@@ -37,7 +37,7 @@ The three signals share a uniform Zap field convention (`event`, `outcome`,
 **Project Type**: Single Go module, hexagonal (web-service).
 **Performance Goals**: No added latency on token/PutFile happy paths (records emit only on failure). `/health` adds at most one ~2s-bounded Collabora probe per call.
 **Constraints**: No new deps; no change to existing HTTP status codes or control flow except the added `/health` body field; Collabora probe MUST be bounded to ~2s (FR-014) and read its body under a bounded reader.
-**Scale/Scope**: Low — observability only; ~9 source files touched + 5 test files. Transition state is per service instance (in-memory); no cross-replica coordination.
+**Scale/Scope**: Low — observability only; ~10 source files touched + 3 test files (two new consolidated signal suites — domain + http — plus the `discovery_client_test.go` edit). Transition state is per service instance (in-memory); no cross-replica coordination.
 
 ## Constitution Check
 
@@ -91,29 +91,33 @@ internal/
 ├── domain/
 │   └── service/
 │       ├── discovery_service.go           # EDIT — reachability state + Probe(ctx) + transition logging; ErrDiscoveryFetch on cold-fetch path
-│       ├── discovery_service_test.go      # NEW/EDIT — probe transitions, lastSuccess, baseline
 │       ├── token_service.go               # EDIT — ErrDocumentLookup / ErrTokenPersist sentinels on issuance wraps
-│       ├── token_service_test.go          # NEW/EDIT — sentinel wrapping preserved through error chain
-│       └── wopi_service.go                # EDIT — ErrLockRepo / ErrFileWrite sentinels on PutFile wraps
+│       ├── wopi_service.go                # EDIT — ErrLockRepo / ErrFileWrite sentinels on PutFile wraps
+│       └── health_signals_test.go         # NEW — domain-layer signal tests (consolidated): PutFile + token sentinel wrapping, cold-fetch ErrDiscoveryFetch vs stale-cache fallback, Probe transitions/lastSuccess/baseline
 └── adapter/
     ├── outbound/
     │   └── collabora/
-    │       └── discovery_client.go        # EDIT — bounded body read (LimitReader) on FetchDiscovery
+    │       ├── discovery_client.go        # EDIT — bounded body read (LimitReader) on FetchDiscovery
+    │       └── discovery_client_test.go   # EDIT — non-2xx / non-`wopi-discovery` body → unreachable; LimitReader cap
     └── inbound/
         └── http/
             ├── health_handler.go          # EDIT — prober dep, 2s probe, body fields, Render
-            ├── health_handler_test.go     # NEW/EDIT — body field, 200 when Collabora down, 503 hard dep
             ├── token_handler.go           # EDIT — structured failure logs + four-category outcome classification (genuine only)
-            ├── token_handler_test.go      # NEW/EDIT — log ⇔ genuine; correct outcome per path; no log for 404/403/422
             ├── wopi_handler.go            # EDIT — structured PutFile failure logs (genuine only)
-            └── wopi_handler_test.go       # NEW/EDIT — log ⇔ genuine; no log for 409/403
+            ├── signals.go                 # NEW — putFileOutcome / tokenIssuanceOutcome classifiers + outcome-string constants (shared by both handlers, same package)
+            └── health_signals_handler_test.go  # NEW — handler signal tests (consolidated): PutFile (US1), token issuance + status pins (US2), /health reachability (US3), outcome-classifier units
 cmd/server/main.go                         # EDIT — wire DiscoveryService into NewHealthHandler
 ```
 
 **Structure Decision**: Existing single-module hexagonal layout is kept as-is. The
-only structural addition is `internal/obs` to hold the cross-package log-field
-constants (Constitution VIII canonical-location rule). All other changes are edits
-at the chokepoints already identified in the spec.
+structural additions are `internal/obs` (cross-package log-field constants,
+Constitution VIII canonical-location rule) and `internal/adapter/inbound/http/signals.go`
+(the per-handler outcome classifiers + outcome-string constants, shared by the
+PutFile and token handlers in the same package). All other changes are edits at the
+chokepoints already identified in the spec. Tests landed as two consolidated
+signal suites — `health_signals_test.go` (domain) and `health_signals_handler_test.go`
+(http) — rather than per-handler `_test.go` files, plus the `discovery_client_test.go`
+edit; functionally equivalent, grouped by the feature rather than by the file under test.
 
 ## Phase 0 — Research
 

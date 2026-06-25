@@ -21,6 +21,14 @@ story is an independently testable increment.
 Single Go module, hexagonal layout. Source under `internal/` and `cmd/`; tests are
 Go `_test.go` files colocated with the package under test.
 
+> **Note (as built):** the test tasks below were planned as per-handler `_test.go`
+> files but landed as two consolidated signal suites, grouped by feature rather than
+> by the file under test: `internal/domain/service/health_signals_test.go` (all
+> domain-layer assertions: T003, T007, T008, T014) and
+> `internal/adapter/inbound/http/health_signals_handler_test.go` (all handler
+> assertions: T004, T009, T015). T013 landed in `discovery_client_test.go` as
+> planned. Paths below reflect where each task actually lives.
+
 ---
 
 ## Phase 1: Setup (Shared)
@@ -55,8 +63,8 @@ document id; confirm a 409 lock conflict and a 403 produce no record.
 
 ### Tests for User Story 1 ⚠️ (write first, must fail)
 
-- [x] T003 [P] [US1] In `internal/domain/service/wopi_service_test.go`, add tests asserting that the PutFile lock-store failure path wraps `ErrLockRepo` and the file-write failure path wraps `ErrFileWrite` (both detectable via `errors.Is` through the returned chain), and that the underlying error remains unwrappable.
-- [x] T004 [P] [US1] In `internal/adapter/inbound/http/wopi_handler_test.go`, add `zaptest/observer` tests asserting: write failure → one `error` record `event=putfile`, `outcome=write_failed`, with `documentId`; lock-store error → `outcome=lock_repo_error`; uncategorized 500 → `outcome=internal`; and that a 409 lock conflict and a 403 denial emit **zero** records and leave the HTTP status unchanged.
+- [x] T003 [P] [US1] In `internal/domain/service/health_signals_test.go`, add tests asserting that the PutFile lock-store failure path wraps `ErrLockRepo` and the file-write failure path wraps `ErrFileWrite` (both detectable via `errors.Is` through the returned chain), and that the underlying error remains unwrappable.
+- [x] T004 [P] [US1] In `internal/adapter/inbound/http/health_signals_handler_test.go`, add `zaptest/observer` tests asserting: write failure → one `error` record `event=putfile`, `outcome=write_failed`, with `documentId`; lock-store error → `outcome=lock_repo_error`; uncategorized 500 → `outcome=internal`; and that a 409 lock conflict and a 403 denial emit **zero** records and leave the HTTP status unchanged.
 
 ### Implementation for User Story 1
 
@@ -81,9 +89,9 @@ confirm not-found/forbidden/unsupported/bad-request emit none.
 
 ### Tests for User Story 2 ⚠️ (write first, must fail)
 
-- [x] T007 [P] [US2] In `internal/domain/service/token_service_test.go`, add tests asserting `IssueToken` wraps `ErrDocumentLookup` on the document-lookup failure (~line 69) and `ErrTokenPersist` on the token-store failure (~line 125), both detectable via `errors.Is`, underlying error preserved.
-- [x] T008 [P] [US2] In `internal/domain/service/discovery_service_test.go`, add a test asserting that a cold discovery fetch failure (no prior cache) returns an error matching `ErrDiscoveryFetch` via `errors.Is`, while the stale-cache fallback path still returns the cached data with no error (no failure produced).
-- [x] T009 [P] [US2] In `internal/adapter/inbound/http/token_handler_test.go`, add `zaptest/observer` tests asserting each genuine path emits one `error` record `event=token_issuance` with the correct `outcome` (`metadata_lookup_failed` / `discovery_unavailable` for both `ErrNoDiscoveryData`(503) and `ErrDiscoveryFetch`(500) / `token_persist_failed` / `internal`), carrying `documentId` and `actorId`; and that 404/403/422/400 client rejections emit **zero** records with their status codes unchanged. **FR-013 status pin**: assert the relabeled cold-outage path keeps HTTP **500** (`ErrDiscoveryFetch`) and the empty-cache path keeps HTTP **503** (`ErrNoDiscoveryData`) even though both share `outcome=discovery_unavailable` — outcome labeling must not shift any status code.
+- [x] T007 [P] [US2] In `internal/domain/service/health_signals_test.go`, add tests asserting `IssueToken` wraps `ErrDocumentLookup` on the document-lookup failure (~line 69) and `ErrTokenPersist` on the token-store failure (~line 125), both detectable via `errors.Is`, underlying error preserved.
+- [x] T008 [P] [US2] In `internal/domain/service/health_signals_test.go`, add a test asserting that a cold discovery fetch failure (no prior cache) returns an error matching `ErrDiscoveryFetch` via `errors.Is`, while the stale-cache fallback path still returns the cached data with no error (no failure produced).
+- [x] T009 [P] [US2] In `internal/adapter/inbound/http/health_signals_handler_test.go`, add `zaptest/observer` tests asserting each genuine path emits one `error` record `event=token_issuance` with the correct `outcome` (`metadata_lookup_failed` / `discovery_unavailable` for both `ErrNoDiscoveryData`(503) and `ErrDiscoveryFetch`(500) / `token_persist_failed` / `internal`), carrying `documentId` and `actorId`; and that 404/403/422/400 client rejections emit **zero** records with their status codes unchanged. **FR-013 status pin**: assert the relabeled cold-outage path keeps HTTP **500** (`ErrDiscoveryFetch`) and the empty-cache path keeps HTTP **503** (`ErrNoDiscoveryData`) even though both share `outcome=discovery_unavailable` — outcome labeling must not shift any status code.
 
 ### Implementation for User Story 2
 
@@ -111,8 +119,8 @@ outage still yields 503.
 ### Tests for User Story 3 ⚠️ (write first, must fail)
 
 - [x] T013 [P] [US3] In `internal/adapter/outbound/collabora/discovery_client_test.go`, add tests asserting `FetchDiscovery` treats a non-2xx response and a 2xx-with-non-`wopi-discovery`-body (placeholder page) as errors (→ unreachable), and that an oversized body is bounded by the `LimitReader` cap.
-- [x] T014 [P] [US3] In `internal/domain/service/discovery_service_test.go`, add tests for `Probe`: first probe sets baseline silently (no log) for both up and down; `up→down` logs exactly one Warn (with error) and `down→up` exactly one Info; unchanged state logs nothing; `lastSuccess` updates only on success; concurrent probes during a transition log at most once (mutex). ⚠️ Same file as T008 — sequence after T008.
-- [x] T015 [P] [US3] In `internal/adapter/inbound/http/health_handler_test.go`, add tests asserting: 200 path includes `collabora` (`reachable`/`unreachable`) from this request's probe and `collabora_last_success` (RFC3339), omitted when never reached; Collabora down keeps overall status 200; a hard-dependency (DB/NATS) outage still returns 503 with `collabora*` absent (probe short-circuited). **FR-014 hang guarantee**: with a prober fake that blocks past 2s, `/health` still returns 200 with `collabora=unreachable` and the handler returns within the ~2s probe bound (assert via the request context deadline / a timed call), proving a hung Collabora cannot stall the readiness response.
+- [x] T014 [P] [US3] In `internal/domain/service/health_signals_test.go`, add tests for `Probe`: first probe sets baseline silently (no log) for both up and down; `up→down` logs exactly one Warn (with error) and `down→up` exactly one Info; unchanged state logs nothing; `lastSuccess` updates only on success; concurrent probes during a transition log at most once (mutex). ⚠️ Same file as T008 — sequence after T008.
+- [x] T015 [P] [US3] In `internal/adapter/inbound/http/health_signals_handler_test.go`, add tests asserting: 200 path includes `collabora` (`reachable`/`unreachable`) from this request's probe and `collabora_last_success` (RFC3339), omitted when never reached; Collabora down keeps overall status 200; a hard-dependency (DB/NATS) outage still returns 503 with `collabora*` absent (probe short-circuited). **FR-014 hang guarantee**: with a prober fake that blocks past 2s, `/health` still returns 200 with `collabora=unreachable` and the handler returns within the ~2s probe bound (assert via the request context deadline / a timed call), proving a hung Collabora cannot stall the readiness response.
 
 ### Implementation for User Story 3
 
@@ -139,7 +147,7 @@ outage still yields 503.
 - **Setup (T001)** → **Foundational (T002)** → user stories.
 - **T002 blocks all stories** (every signal imports `internal/obs`).
 - **US1 (T003–T006)**, **US2 (T007–T012)**, **US3 (T013–T019)** are otherwise independent and can be delivered in priority order. US1 alone is a shippable MVP.
-- **Cross-story shared file** — `internal/domain/service/discovery_service.go` (and its `_test.go`) are touched by both US2 and US3:
+- **Cross-story shared file** — `internal/domain/service/discovery_service.go` (and its tests, now in `health_signals_test.go`) are touched by both US2 and US3:
   - T011 (US2, `ErrDiscoveryFetch`) before T017 (US3, reachability state).
   - T008 (US2 test) before T014 (US3 test).
 - Within each story: tests (parallel) → implementation; the handler task depends on its story's service/sentinel tasks.
