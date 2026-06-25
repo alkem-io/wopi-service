@@ -64,16 +64,31 @@ One canonical field convention across all three signals (keys centralized in
 
 Reachability records carry `event` + `error` (on lost) only — no `outcome`/IDs.
 
-## 4. New domain sentinel errors (`internal/domain/service/wopi_service.go`)
+## 4. New domain sentinel errors
 
-| Error | Wraps the failure at | Maps to outcome |
-|---|---|---|
-| `ErrLockRepo` | `lockRepo.FindByFileID` failure (`wopi_service.go:148`) | `lock_repo_error` |
-| `ErrFileWrite` | `fileSvc.WriteFile` failure (`wopi_service.go:158`) | `write_failed` |
+**PutFile** (`internal/domain/service/wopi_service.go`):
+
+| Error | Wraps the failure at | Maps to outcome | Status (unchanged) |
+|---|---|---|---|
+| `ErrLockRepo` | `lockRepo.FindByFileID` failure (`wopi_service.go:148`) | `lock_repo_error` | 500 |
+| `ErrFileWrite` | `fileSvc.WriteFile` failure (`wopi_service.go:158`) | `write_failed` | 500 |
+
+**Token issuance** (`internal/domain/service/token_service.go`, plus one in
+`discovery_service.go`):
+
+| Error | Wraps the failure at | Maps to outcome | Status (unchanged) |
+|---|---|---|---|
+| `ErrDocumentLookup` (new) | `fileSvc.FindByID` failure — `lookup document: %w` (`token_service.go:69`) | `metadata_lookup_failed` | 500 |
+| `ErrTokenPersist` (new) | `tokenRepo.Create` failure — `store token: %w` (`token_service.go:125`) | `token_persist_failed` | 500 |
+| `ErrDiscoveryFetch` (new, in `discovery_service.go`) | cold discovery-fetch failure in `refresh` — `fetch discovery: %w` (`discovery_service.go:126`) | `discovery_unavailable` | 500 |
+| `ErrNoDiscoveryData` (existing) | nil discovery svc / empty cache (`token_service.go:140`, `discovery_service.go:73`) | `discovery_unavailable` | 503 |
 
 Wrapped with multi-`%w` so both the sentinel and the underlying error remain
-unwrappable, e.g. `fmt.Errorf("write file: %w: %w", ErrFileWrite, err)`. Status-code
-mapping in the handler is unchanged (both still fall to the 500 default branch).
+unwrappable, e.g. `fmt.Errorf("write file: %w: %w", ErrFileWrite, err)`. **Status-code
+mapping in the handlers is unchanged** (FR-013): the new token sentinels are detected
+*inside* the existing `default`/500 branch for outcome labeling only;
+`ErrNoDiscoveryData` keeps its 503 branch. Anything not matching a sentinel →
+`outcome=internal` (still 500).
 
 ## 5. Health response body (extended)
 

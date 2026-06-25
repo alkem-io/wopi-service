@@ -127,6 +127,9 @@ regardless of how long the outage lasts.
 
 - Q: How is Collabora reachability determined and refreshed? → A: Probed once per `/health` request; no background ticker and no self-initiated re-probe, regardless of probe outcome. Reachability is evaluated only when the health endpoint is called.
 - Q: What timeout should the per-`/health` Collabora probe use? → A: A short, dedicated probe timeout (~2s), independent of the existing 30s discovery-fetch timeout, so `/health` stays responsive when Collabora hangs.
+- Q: What does the probe do and what counts as "reachable"? → A: HTTP GET Collabora's discovery URL; reachable requires BOTH a 2xx status AND a body that parses as discovery XML (contains the `wopi-discovery` root element). A 2xx with a non-discovery body (e.g. a reverse-proxy placeholder served while coolwsd is still warming up) counts as unreachable. Read the body under a bounded reader (LimitReader) to stay within the probe budget.
+- Q: Is reachability transition state per-instance or shared across replicas? → A: Per-instance, in-memory. Each replica tracks its own previous reachability and emits its own one-per-transition record; state resets on restart. "Exactly one" is scoped per instance, so a single outage may yield up to N "lost" records across N replicas (one each).
+- Q: What is the fixed `outcome` category set for token-issuance failures? → A: One category per named genuine failure path, mirroring FR-003: `metadata_lookup_failed`, `discovery_unavailable`, `token_persist_failed`, and `internal` (catch-all for otherwise-uncategorized internal errors).
 
 ## Requirements *(mandatory)*
 
@@ -153,14 +156,23 @@ regardless of how long the outage lasts.
   denied, malformed request, unsupported file type).
 - **FR-006**: Each token-issuance failure record MUST carry the document
   identifier, the actor identifier, and a failure category from a fixed,
-  low-cardinality set.
+  low-cardinality set: `metadata_lookup_failed`, `discovery_unavailable`,
+  `token_persist_failed`, and `internal` (catch-all for otherwise-uncategorized
+  internal errors).
 
 **Collabora reachability**
 
 - **FR-007**: The service MUST determine Collabora reachability by performing
   exactly one probe of Collabora during each health-endpoint request, and MUST
   record the resulting reachable/not-reachable state and the time of the last
-  successful probe.
+  successful probe. The probe MUST be an HTTP GET to Collabora's discovery URL
+  (the same endpoint the discovery service already uses), and MUST count as
+  reachable only when the response has BOTH a 2xx status AND a body that parses
+  as discovery XML (contains the `wopi-discovery` root element). A 2xx response
+  whose body is not valid discovery XML (e.g. a reverse-proxy placeholder served
+  while coolwsd is still warming up) MUST be treated as unreachable. The body
+  MUST be read under a bounded reader to keep the probe within its timeout
+  budget.
 - **FR-008**: The service MUST NOT probe Collabora on its own schedule.
   Reachability is evaluated only when the health endpoint is called — there is no
   background ticker and no self-initiated re-probe, regardless of the probe
@@ -175,7 +187,10 @@ regardless of how long the outage lasts.
 - **FR-011**: The service MUST compare each probe result to the previous one and
   emit exactly one record on a state transition — a warning when reachability is
   lost, an informational record when it is regained — and MUST NOT emit a record
-  while the state is unchanged across probes.
+  while the state is unchanged across probes. Transition state is tracked
+  per-instance in memory (no cross-replica coordination, per FR-013) and resets
+  on restart; "exactly one" is therefore scoped per service instance, so a single
+  outage may produce up to one "lost" record per running replica.
 - **FR-014**: The Collabora probe MUST use a short, dedicated timeout (~2
   seconds), independent of the existing 30-second discovery-fetch timeout, so that
   a hung or slow Collabora results in a prompt "unreachable" determination without
@@ -214,8 +229,8 @@ regardless of how long the outage lasts.
   from a single health-endpoint query, with the answer reflecting a probe
   performed during that same query.
 - **SC-003**: A Collabora outage of any duration produces exactly one "lost"
-  record and, on recovery, exactly one "regained" record — never a record per
-  check.
+  record per service instance and, on recovery, exactly one "regained" record per
+  instance — never a record per check.
 - **SC-004**: Collabora being unreachable never removes the service from rotation;
   the service continues to issue read-capable tokens and serve existing content
   for as long as its hard dependencies are healthy.

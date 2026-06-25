@@ -18,6 +18,10 @@ components:
       type: object
     http.healthResponse:
       properties:
+        collabora:
+          type: string
+        collabora_last_success:
+          type: string
         status:
           type: string
       required:

@@ -9,6 +9,7 @@ import (
 
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/service"
+	"github.com/alkem-io/wopi-service/internal/obs"
 )
 
 // TokenHandler handles WOPI token issuance requests.
@@ -62,9 +63,10 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, service.ErrUnsupportedExtension):
 			http.Error(w, `{"error":"document type not supported for editing"}`, http.StatusUnprocessableEntity)
 		case errors.Is(err, service.ErrNoDiscoveryData):
+			h.logFailure(req.DocumentID, actorID, err)
 			http.Error(w, `{"error":"editor discovery unavailable"}`, http.StatusServiceUnavailable)
 		default:
-			h.logger.Error("token issuance failed", zap.Error(err))
+			h.logFailure(req.DocumentID, actorID, err)
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		}
 		return
@@ -81,4 +83,18 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WOPISrc:     result.WOPISrc,
 		EditorURL:   result.EditorURL,
 	}.Render(w)
+}
+
+// logFailure emits one structured token_issuance health-signal record for a
+// genuine issuance failure. Classification is independent of the HTTP status
+// mapping (FR-013): both the 503 ErrNoDiscoveryData branch and the 500 default
+// branch call this, and the outcome distinguishes them for alerting.
+func (h *TokenHandler) logFailure(documentID, actorID string, err error) {
+	h.logger.Error("token issuance failed",
+		zap.String(obs.FieldEvent, obs.EventTokenIssuance),
+		zap.String(obs.FieldOutcome, tokenIssuanceOutcome(err)),
+		zap.String(obs.FieldDocumentID, documentID),
+		zap.String(obs.FieldActorID, actorID),
+		zap.Error(err),
+	)
 }

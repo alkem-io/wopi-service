@@ -37,8 +37,16 @@ curl -s localhost:8080/health | jq '.status'                     # → "db_unava
 ## 2. Token issuance failures
 
 ```bash
-# Genuine failure — Collabora discovery unavailable while requesting a token:
-#   level=error event=token_issuance outcome=discovery_unavailable documentId=... actorId=...
+# Genuine failures — one error record per genuine path, with its outcome:
+#   Collabora discovery down (cold, no cache) → HTTP 500
+#     level=error event=token_issuance outcome=discovery_unavailable documentId=... actorId=...
+#   Collabora discovery down (empty cache / nil svc) → HTTP 503
+#     level=error event=token_issuance outcome=discovery_unavailable documentId=... actorId=...
+#   Alkemio metadata lookup fails (Alkemio DB / file-service meta down) → HTTP 500
+#     level=error event=token_issuance outcome=metadata_lookup_failed documentId=... actorId=...
+#   Token persistence fails (own DB write) → HTTP 500
+#     level=error event=token_issuance outcome=token_persist_failed documentId=... actorId=...
+#   Any other internal error → HTTP 500, outcome=internal
 #
 # Expected client rejection — NO signal record (only the access-log line):
 #   request a document the actor cannot access → HTTP 403, and grep shows

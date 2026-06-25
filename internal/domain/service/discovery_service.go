@@ -9,9 +9,21 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/alkem-io/wopi-service/internal/domain/port"
+	"github.com/alkem-io/wopi-service/internal/obs"
 )
 
 const defaultDiscoveryCacheTTL = 12 * time.Hour
+
+// reachability is the per-instance, in-memory view of Collabora connectivity.
+// It starts unknown so the first probe establishes a baseline silently (no
+// false "regained" log on a healthy start).
+type reachability int
+
+const (
+	reachUnknown reachability = iota
+	reachUp
+	reachDown
+)
 
 // DiscoveryService caches WOPI discovery data from Collabora.
 type DiscoveryService struct {
@@ -21,6 +33,13 @@ type DiscoveryService struct {
 	cached   *port.DiscoveryData
 	cachedAt time.Time
 	cacheTTL time.Duration
+
+	// Reachability state for the collabora_reachability health signal. Guarded
+	// by its own mutex (separate from the cache mu) and never coordinated across
+	// replicas — "exactly one record per transition" is scoped per instance.
+	reachMu     sync.Mutex
+	reachState  reachability
+	lastSuccess time.Time
 }
 
 // NewDiscoveryService creates a new DiscoveryService.
@@ -58,6 +77,44 @@ func (s *DiscoveryService) InvalidateAndRefresh(ctx context.Context) (*port.Disc
 
 // ErrNoDiscoveryData is returned when the discovery cache is empty.
 var ErrNoDiscoveryData = fmt.Errorf("no discovery data available")
+
+// ErrDiscoveryFetch wraps a cold discovery-fetch failure (no cache to fall back
+// to), letting token issuance classify a genuine Collabora outage as
+// discovery_unavailable. It does not change the returned status code.
+var ErrDiscoveryFetch = fmt.Errorf("discovery fetch failed")
+
+// Probe contacts Collabora once to determine reachability, updates the
+// per-instance in-memory reachability state, logs exactly one record on a state
+// transition, and returns the current view. It calls the discovery client
+// directly (NOT refresh) so it observes raw connectivity without the stale-cache
+// fallback, and it does NOT mutate the discovery cache. Reachable means
+// FetchDiscovery returned no error — i.e. a 2xx response whose body parsed as
+// wopi-discovery XML.
+func (s *DiscoveryService) Probe(ctx context.Context) (reachable bool, lastSuccess time.Time) {
+	_, err := s.client.FetchDiscovery(ctx)
+	reachable = err == nil
+
+	s.reachMu.Lock()
+	defer s.reachMu.Unlock()
+
+	prev := s.reachState
+	if reachable {
+		s.lastSuccess = time.Now()
+		s.reachState = reachUp
+		if prev == reachDown {
+			s.logger.Info("collabora reachability regained",
+				zap.String(obs.FieldEvent, obs.EventCollaboraReachability))
+		}
+	} else {
+		s.reachState = reachDown
+		if prev == reachUp {
+			s.logger.Warn("collabora reachability lost",
+				zap.String(obs.FieldEvent, obs.EventCollaboraReachability),
+				zap.Error(err))
+		}
+	}
+	return reachable, s.lastSuccess
+}
 
 // ErrUnsupportedExtension is returned when no editor action matches the extension.
 var ErrUnsupportedExtension = fmt.Errorf("no editor action for extension")
@@ -123,7 +180,7 @@ func (s *DiscoveryService) refresh(ctx context.Context) (*port.DiscoveryData, er
 			s.logger.Warn("using stale discovery cache", zap.Error(err))
 			return stale, nil
 		}
-		return nil, fmt.Errorf("fetch discovery: %w", err)
+		return nil, fmt.Errorf("fetch discovery: %w: %w", ErrDiscoveryFetch, err)
 	}
 
 	s.mu.Lock()

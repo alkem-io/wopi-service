@@ -196,7 +196,7 @@ func createHandlers(s services, pool *pgxpool.Pool, nc *nats.Conn, logger *zap.L
 	return httpHandlers{
 		token:     wopihttp.NewTokenHandler(s.token, logger),
 		wopi:      wopihttp.NewWOPIHandler(s.wopi, s.contribution, logger),
-		health:    wopihttp.NewHealthHandler(pool, nc, logger),
+		health:    wopihttp.NewHealthHandler(pool, nc, s.discovery, logger),
 		discovery: wopihttp.NewDiscoveryHandler(s.discovery, logger),
 	}
 }

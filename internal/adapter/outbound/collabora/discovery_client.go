@@ -13,6 +13,11 @@ import (
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
 
+// maxDiscoveryBytes bounds the discovery response body read. A real discovery
+// XML is a few KB; the cap defends the health probe's time/memory budget against
+// a hung or oversized response without affecting legitimate documents.
+const maxDiscoveryBytes = 1 << 20 // 1 MiB
+
 // DiscoveryClient fetches WOPI discovery data from Collabora Online.
 type DiscoveryClient struct {
 	collaboraURL string
@@ -76,7 +81,7 @@ func (c *DiscoveryClient) FetchDiscovery(ctx context.Context) (*port.DiscoveryDa
 		return nil, fmt.Errorf("discovery status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read discovery body: %w", err)
 	}

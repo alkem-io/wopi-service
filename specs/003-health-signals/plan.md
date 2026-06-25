@@ -12,13 +12,16 @@ the `/health` body):
 1. **Save/PutFile failures** — emit one structured Zap error record at the existing
    PutFile error chokepoint for genuine failures (`write_failed`, `lock_repo_error`,
    `internal`); never for lock conflicts (409) or authorization denials (403).
-2. **Token issuance failures** — emit one structured Zap error record at the
-   existing token-handler error switch for genuine failures (`discovery_unavailable`,
-   `internal`); never for client rejections (404/403/422/400).
+2. **Token issuance failures** — emit one structured Zap error record at the existing
+   token-handler error switch for genuine failures, classified into the four
+   spec-mandated categories `metadata_lookup_failed`, `discovery_unavailable`,
+   `token_persist_failed`, `internal`; never for client rejections
+   (404/403/422/400).
 3. **Collabora reachability** — `/health` probes Collabora once per request (short
    2s timeout, independent of the 30s discovery client), records reachable state +
    last-success time, reports them in the body without affecting HTTP status (soft
-   dependency), and logs one record on each up/down transition.
+   dependency), and logs one record on each up/down transition (per-instance,
+   in-memory).
 
 The three signals share a uniform Zap field convention (`event`, `outcome`,
 `documentId`, `actorId`, `error`) whose canonical key/name constants live in a new
@@ -33,8 +36,8 @@ The three signals share a uniform Zap field convention (`event`, `outcome`,
 **Target Platform**: Linux server (Kubernetes pod; `/health` is the readiness probe).
 **Project Type**: Single Go module, hexagonal (web-service).
 **Performance Goals**: No added latency on token/PutFile happy paths (records emit only on failure). `/health` adds at most one ~2s-bounded Collabora probe per call.
-**Constraints**: No new deps; no change to existing HTTP status codes or control flow except the added `/health` body field; Collabora probe MUST be bounded to ~2s (FR-014).
-**Scale/Scope**: Low — observability only; ~7 source files touched + 4 test files.
+**Constraints**: No new deps; no change to existing HTTP status codes or control flow except the added `/health` body field; Collabora probe MUST be bounded to ~2s (FR-014) and read its body under a bounded reader.
+**Scale/Scope**: Low — observability only; ~9 source files touched + 5 test files. Transition state is per service instance (in-memory); no cross-replica coordination.
 
 ## Constitution Check
 
@@ -46,17 +49,17 @@ The three signals share a uniform Zap field convention (`event`, `outcome`,
 | II. WOPI Protocol Compliance | ✅ | No protocol behavior changes; PutFile/token responses and status codes unchanged. |
 | III. Alkemio Integration First | ✅ | No change to auth/storage delegation. |
 | IV. Type-Safe Database Access | ✅ | No DB access added. |
-| V. Security by Design | ✅ | Only document/actor IDs and wrapped operational errors are logged — no secrets/tokens (already the case today; verified the error chains carry no credentials). |
+| V. Security by Design | ✅ | Only document/actor IDs and wrapped operational errors are logged — no secrets/tokens (verified the error chains carry no credentials). |
 | VI. Test-First Development | ✅ | Each slice writes failing tests first (Phase 1 contracts → tests → impl). |
 | VII. Root Cause Analysis | ✅ (N/A) | Net-new feature, not a bug fix. |
-| VIII. DRY — Single Source of Truth | ✅ | Field-key and event-name constants centralized in `internal/obs`; outcome strings live next to their (single) use site. |
+| VIII. DRY — Single Source of Truth | ✅ | Field-key and event-name constants centralized in `internal/obs`; outcome strings live next to their (single) classification site. |
 | IX. Lint on Completion | ✅ | `golangci-lint run` before commit. |
 | X. No Legacy Code | ✅ | Dropped the abandoned `WOPI_DISCOVERY_REFRESH_INTERVAL`/ticker design entirely; no compat shims. |
-| XI. No Busywork | ✅ | No speculative abstraction; `internal/obs` exists only to satisfy the canonical-constant rule for the cross-package log contract. |
-| XII. Meaningful Tests Only | ✅ | Tests assert the FR invariants (record emitted ⇔ genuine failure; transition logged once; status unaffected by Collabora). |
+| XI. No Busywork | ✅ | The token-issuance sentinels (`ErrDocumentLookup`, `ErrTokenPersist`, `ErrDiscoveryFetch`) are **spec-mandated** by the clarified four-category outcome set (FR-006) — they distinguish on-call-actionable causes, not speculative labels. `internal/obs` exists only to satisfy the canonical-constant rule for the cross-package log contract. |
+| XII. Meaningful Tests Only | ✅ | Tests assert the FR invariants (record emitted ⇔ genuine failure; correct outcome per path; transition logged once; status unaffected by Collabora). |
 | XIII. Meaningful Success Criteria | ✅ | SC-001..005 are all testable within this service. |
 | XIV. Latest Dependencies Always | ✅ | No dependency added. |
-| XV. No Assumptions | ✅ | Probe model + timeout resolved via `/speckit.clarify`. |
+| XV. No Assumptions | ✅ | Probe model, timeout, reachable-definition, transition-state scope, and token outcome set all resolved via `/speckit.clarify` (5 clarifications). |
 | Anti-pattern #11 (typed response + `Render`) | ✅ | `healthResponse` stays a named struct with JSON tags; a `Render` method is added and the inline encodes refactored onto it. |
 
 **Result: PASS. No violations → Complexity Tracking section omitted.**
@@ -87,16 +90,21 @@ internal/
 │   └── signals.go                         # NEW — canonical log field keys + event names (SoT)
 ├── domain/
 │   └── service/
-│       ├── discovery_service.go           # EDIT — reachability state + Probe(ctx) + transition logging
+│       ├── discovery_service.go           # EDIT — reachability state + Probe(ctx) + transition logging; ErrDiscoveryFetch on cold-fetch path
 │       ├── discovery_service_test.go      # NEW/EDIT — probe transitions, lastSuccess, baseline
+│       ├── token_service.go               # EDIT — ErrDocumentLookup / ErrTokenPersist sentinels on issuance wraps
+│       ├── token_service_test.go          # NEW/EDIT — sentinel wrapping preserved through error chain
 │       └── wopi_service.go                # EDIT — ErrLockRepo / ErrFileWrite sentinels on PutFile wraps
 └── adapter/
+    ├── outbound/
+    │   └── collabora/
+    │       └── discovery_client.go        # EDIT — bounded body read (LimitReader) on FetchDiscovery
     └── inbound/
         └── http/
             ├── health_handler.go          # EDIT — prober dep, 2s probe, body fields, Render
             ├── health_handler_test.go     # NEW/EDIT — body field, 200 when Collabora down, 503 hard dep
-            ├── token_handler.go           # EDIT — structured failure logs (genuine only)
-            ├── token_handler_test.go      # NEW/EDIT — log ⇔ genuine; no log for 404/403/422
+            ├── token_handler.go           # EDIT — structured failure logs + four-category outcome classification (genuine only)
+            ├── token_handler_test.go      # NEW/EDIT — log ⇔ genuine; correct outcome per path; no log for 404/403/422
             ├── wopi_handler.go            # EDIT — structured PutFile failure logs (genuine only)
             └── wopi_handler_test.go       # NEW/EDIT — log ⇔ genuine; no log for 409/403
 cmd/server/main.go                         # EDIT — wire DiscoveryService into NewHealthHandler
@@ -109,15 +117,18 @@ at the chokepoints already identified in the spec.
 
 ## Phase 0 — Research
 
-See [research.md](./research.md). Resolves: probe-vs-cache interaction, how the 2s
-timeout is enforced over the 30s client, reachability baseline/transition modeling,
-outcome-classification granularity (and where typed errors are justified vs coarse
-`internal`), and log severity per outcome. No `NEEDS CLARIFICATION` remain.
+See [research.md](./research.md). Resolves: probe-vs-cache interaction, the
+reachable definition (2xx + parseable `wopi-discovery` XML, bounded body read), how
+the 2s timeout is enforced over the 30s client, reachability baseline/transition
+modeling (per-instance, in-memory), outcome-classification granularity (the four
+spec-mandated token categories via layered sentinels that preserve status codes),
+and log severity per outcome. No `NEEDS CLARIFICATION` remain.
 
 ## Phase 1 — Design & Contracts
 
 - [data-model.md](./data-model.md) — reachability state machine (`unknown→up/down`),
-  the health-signal log record shape, and the two new domain sentinel errors.
+  the health-signal log record shape, and the domain sentinel errors (PutFile +
+  token issuance).
 - [contracts/health-response.md](./contracts/health-response.md) — the `/health`
   body JSON contract (200 with `collabora` + `collabora_last_success`; unchanged 503
   shapes for hard deps).
