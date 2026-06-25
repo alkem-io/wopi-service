@@ -50,9 +50,15 @@ func NewHealthHandler(wopiPool dbPinger, natsConn *nats.Conn, prober collaboraPr
 }
 
 type healthResponse struct {
-	Status               string `json:"status"`
-	Collabora            string `json:"collabora,omitempty"`              // "reachable" | "unreachable"
-	CollaboraLastSuccess string `json:"collabora_last_success,omitempty"` // RFC3339; omitted if never reached
+	Status string `json:"status"`
+	// "reachable" | "unreachable". Left as a plain string (not a named enum
+	// type) on purpose: apispec's enum-from-constants detection is not
+	// type-scoped and would bind this field to the unrelated contextKey
+	// constants in this package, emitting a wrong enum.
+	Collabora string `json:"collabora,omitempty"`
+	// RFC3339; omitted if never reached. apispec:"format=date-time" makes the
+	// generated OpenAPI document it as a date-time string.
+	CollaboraLastSuccess string `json:"collabora_last_success,omitempty" apispec:"format=date-time"`
 }
 
 // Render writes the response as JSON with the given status code.

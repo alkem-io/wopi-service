@@ -21,6 +21,7 @@ components:
         collabora:
           type: string
         collabora_last_success:
+          format: date-time
           type: string
         status:
           type: string
