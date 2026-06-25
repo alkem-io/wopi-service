@@ -86,7 +86,10 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // logFailure emits one structured token_issuance health-signal record for a
-// genuine issuance failure. Classification is independent of the HTTP status
+// genuine issuance failure. This is per-failed-request by design — the signal
+// measures token-failure rate, so a Collabora outage (outcome=discovery_unavailable)
+// is expected to log once per blocked open; it is NOT the once-per-transition
+// collabora_reachability signal. Classification is independent of the HTTP status
 // mapping (FR-013): both the 503 ErrNoDiscoveryData branch and the 500 default
 // branch call this, and the outcome distinguishes them for alerting.
 func (h *TokenHandler) logFailure(documentID, actorID string, err error) {

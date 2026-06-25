@@ -162,10 +162,12 @@ regardless of how long the outage lasts.
 
 **Collabora reachability**
 
-- **FR-007**: The service MUST determine Collabora reachability by performing
-  exactly one probe of Collabora during each health-endpoint request, and MUST
-  record the resulting reachable/not-reachable state and the time of the last
-  successful probe. The probe MUST be an HTTP GET to Collabora's discovery URL
+- **FR-007**: On each health-endpoint request that passes the hard-dependency
+  checks (the successful path — see FR-010), the service MUST perform exactly one
+  probe of Collabora and MUST record the resulting reachable/not-reachable state
+  and the time of the last successful probe. When a hard dependency is down the
+  request returns its unsuccessful status without probing Collabora. The probe
+  MUST be an HTTP GET to Collabora's discovery URL
   (the same endpoint the discovery service already uses), and MUST count as
   reachable only when the response has BOTH a 2xx status AND a body that parses
   as discovery XML (contains the `wopi-discovery` root element). A 2xx response
@@ -177,10 +179,11 @@ regardless of how long the outage lasts.
   Reachability is evaluated only when the health endpoint is called — there is no
   background ticker and no self-initiated re-probe, regardless of the probe
   outcome.
-- **FR-009**: The health endpoint response MUST report Collabora reachability as
-  determined by that request's probe, together with the last-success time, and
-  MUST NOT change the overall health status based on Collabora reachability
-  (Collabora is a soft dependency).
+- **FR-009**: On the successful path, the health endpoint response MUST report
+  Collabora reachability as determined by that request's probe, together with the
+  last-success time; these Collabora fields are absent from unsuccessful (hard-
+  dependency-down) responses. Collabora reachability MUST NOT change the overall
+  health status (Collabora is a soft dependency).
 - **FR-010**: The health endpoint MUST continue to report an unsuccessful overall
   status only when a hard dependency (own database; messaging connection when
   configured) is unavailable.

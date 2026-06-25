@@ -72,7 +72,7 @@ grep 'event":"token_issuance' <logfile>   # (only genuine failures appear)
 ## 4. Automated tests
 
 ```bash
-go test ./internal/domain/service/... ./internal/adapter/inbound/http/...
+go test ./internal/domain/service/... ./internal/adapter/inbound/http/... ./internal/adapter/outbound/collabora/...
 golangci-lint run
 ```
 

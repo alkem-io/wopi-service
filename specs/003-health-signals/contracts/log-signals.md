@@ -65,7 +65,7 @@ Fields: `event=collabora_reachability`, `error` (on the down transition only).
 
 ## Example alert expressions (illustrative)
 
-```
+```text
 level="error" AND event="token_issuance"                          # all genuine token failures
 level="error" AND event="token_issuance" AND outcome="discovery_unavailable"  # Collabora outage blocking opens
 level="error" AND event="token_issuance" AND outcome="metadata_lookup_failed" # Alkemio DB / file-service meta down
