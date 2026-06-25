@@ -67,7 +67,7 @@ func (r healthResponse) Render(w http.ResponseWriter, statusCode int) {
 // probed once per request (≤2s) on the healthy path and reported in the body
 // only — it never changes the status code (FR-009/FR-010).
 func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
 	if err := h.wopiPool.Ping(ctx); err != nil {

@@ -108,15 +108,36 @@ func TestDiscoveryClient_FetchDiscovery_PlaceholderBody_Unreachable(t *testing.T
 }
 
 // The discovery body read is bounded (LimitReader) so a hung/oversized response
-// cannot blow the probe budget. A body larger than the cap is truncated and
-// fails to parse — i.e. counts as unreachable rather than being read unbounded.
+// cannot blow the probe budget. The server writes exactly the cap's worth of
+// bytes and then holds the connection open WITHOUT closing it (no EOF). This is
+// what makes the test defend the invariant: a bounded read returns promptly once
+// the cap is reached (the all-"A" body fails XML parsing → error), whereas an
+// unbounded io.ReadAll would block waiting for EOF until the client timeout —
+// caught by the deadline below. (A server that wrote a finite body and closed
+// would let an unbounded read pass too, so it would NOT distinguish bounded from
+// unbounded.)
 func TestDiscoveryClient_FetchDiscovery_BoundedBody(t *testing.T) {
-	oversized := bytes.Repeat([]byte("A"), maxDiscoveryBytes+4096)
+	release := make(chan struct{})
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("test server ResponseWriter is not an http.Flusher")
+			return
+		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(oversized)
+		// Exactly the cap: a bounded reader consumes all of it and stops (no
+		// extra bytes left for the server to block on); an unbounded reader
+		// consumes it and then blocks waiting for more.
+		_, _ = w.Write(bytes.Repeat([]byte("A"), maxDiscoveryBytes))
+		flusher.Flush()
+		<-release // hold the connection open; never send EOF
 	}))
+	// Defer order matters: close(release) must run BEFORE srv.Close(), because
+	// httptest's Close() blocks until the in-flight handler returns and the
+	// handler is parked on <-release. LIFO ⇒ register srv.Close() first.
 	defer srv.Close()
+	defer close(release)
 
 	done := make(chan error, 1)
 	client := NewDiscoveryClient(srv.URL)
@@ -125,9 +146,9 @@ func TestDiscoveryClient_FetchDiscovery_BoundedBody(t *testing.T) {
 	select {
 	case err := <-done:
 		if err == nil {
-			t.Error("expected error for oversized non-discovery body")
+			t.Error("expected error for an all-'A' body read up to the cap")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("FetchDiscovery did not return promptly — body read may be unbounded")
+		t.Fatal("FetchDiscovery did not return promptly — body read is not bounded")
 	}
 }
