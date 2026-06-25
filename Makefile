@@ -17,7 +17,7 @@ run: build
 	@set -a; \
 	if [ -f $(ENV_FILE) ]; then echo "→ loading env from $(ENV_FILE)"; . ./$(ENV_FILE); fi; \
 	set +a; \
-	./$(BINARY)
+	exec ./$(BINARY)
 
 # Code generation
 generate:
