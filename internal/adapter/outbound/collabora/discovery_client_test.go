@@ -1,10 +1,12 @@
 package collabora
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 const testDiscoveryXML = `<?xml version="1.0" encoding="utf-8"?>
@@ -86,5 +88,67 @@ func TestDiscoveryClient_FetchDiscovery_Unreachable(t *testing.T) {
 	_, err := client.FetchDiscovery(context.Background())
 	if err == nil {
 		t.Error("expected error for unreachable server")
+	}
+}
+
+// A reverse proxy can return 200 with a placeholder page (well-formed XML/HTML
+// but NOT a <wopi-discovery> root) while coolwsd is still warming up. That must
+// count as unreachable — a 2xx alone is not "serving WOPI" (clarification).
+func TestDiscoveryClient_FetchDiscovery_PlaceholderBody_Unreachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`<html><body>default site</body></html>`))
+	}))
+	defer srv.Close()
+
+	client := NewDiscoveryClient(srv.URL)
+	if _, err := client.FetchDiscovery(context.Background()); err == nil {
+		t.Error("expected error: a 200 with a non-wopi-discovery body must be treated as unreachable")
+	}
+}
+
+// The discovery body read is bounded (LimitReader) so a hung/oversized response
+// cannot blow the probe budget. The server writes exactly the cap's worth of
+// bytes and then holds the connection open WITHOUT closing it (no EOF). This is
+// what makes the test defend the invariant: a bounded read returns promptly once
+// the cap is reached (the all-"A" body fails XML parsing → error), whereas an
+// unbounded io.ReadAll would block waiting for EOF until the client timeout —
+// caught by the deadline below. (A server that wrote a finite body and closed
+// would let an unbounded read pass too, so it would NOT distinguish bounded from
+// unbounded.)
+func TestDiscoveryClient_FetchDiscovery_BoundedBody(t *testing.T) {
+	release := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("test server ResponseWriter is not an http.Flusher")
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		// Exactly the cap: a bounded reader consumes all of it and stops (no
+		// extra bytes left for the server to block on); an unbounded reader
+		// consumes it and then blocks waiting for more.
+		_, _ = w.Write(bytes.Repeat([]byte("A"), maxDiscoveryBytes))
+		flusher.Flush()
+		<-release // hold the connection open; never send EOF
+	}))
+	// Defer order matters: close(release) must run BEFORE srv.Close(), because
+	// httptest's Close() blocks until the in-flight handler returns and the
+	// handler is parked on <-release. LIFO ⇒ register srv.Close() first.
+	defer srv.Close()
+	defer close(release)
+
+	done := make(chan error, 1)
+	client := NewDiscoveryClient(srv.URL)
+	go func() { _, err := client.FetchDiscovery(context.Background()); done <- err }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("expected error for an all-'A' body read up to the cap")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("FetchDiscovery did not return promptly — body read is not bounded")
 	}
 }

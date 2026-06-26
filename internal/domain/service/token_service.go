@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -18,6 +19,15 @@ import (
 )
 
 const defaultTokenTTL = 8 * time.Hour
+
+// Sentinels classifying genuine token-issuance failures for the token_issuance
+// health signal. They wrap the underlying error (multi-%w) so the handler can
+// map each to a stable outcome via errors.Is without string-matching. Status
+// codes are unchanged — both still fall to the handler's 500 default branch.
+var (
+	ErrDocumentLookup = errors.New("document metadata lookup failed")
+	ErrTokenPersist   = errors.New("token persistence failed")
+)
 
 // TokenService handles WOPI access token generation, validation, and issuance.
 type TokenService struct {
@@ -66,7 +76,7 @@ type TokenIssuanceResult struct {
 func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, documentID string) (*TokenIssuanceResult, error) {
 	doc, err := s.fileSvc.FindByID(ctx, documentID)
 	if err != nil {
-		return nil, fmt.Errorf("lookup document: %w", err)
+		return nil, fmt.Errorf("lookup document: %w: %w", ErrDocumentLookup, err)
 	}
 	if doc == nil {
 		return nil, ErrDocumentNotFound
@@ -122,7 +132,7 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, docum
 	}
 
 	if err := s.tokenRepo.Create(ctx, accessToken); err != nil {
-		return nil, fmt.Errorf("store token: %w", err)
+		return nil, fmt.Errorf("store token: %w: %w", ErrTokenPersist, err)
 	}
 
 	return &TokenIssuanceResult{

@@ -122,6 +122,8 @@ principles and governance rules.
 ## Active Technologies
 - Go 1.26 (existing codebase) + No new dependencies — uses existing discovery service and config (002-editor-url-privilege)
 - No schema changes (002-editor-url-privilege)
+- Go 1.26 (existing codebase) + existing only — chi v5, Zap, pgx v5, nats.go. **No new runtime dependency** (FR-013, Constitution XIV). (003-health-signals)
+- None added — no schema changes, no migrations, no sqlc changes. (003-health-signals)
 
 ## Recent Changes
 - 002-editor-url-privilege: Added Go 1.26 (existing codebase) + No new dependencies — uses existing discovery service and config

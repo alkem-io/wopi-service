@@ -14,6 +14,16 @@ import (
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
 
+// Sentinels classifying genuine PutFile save failures for the putfile health
+// signal. They wrap the underlying error (multi-%w) so the handler can map each
+// to a stable, low-cardinality outcome via errors.Is without string-matching.
+// Status-code mapping is unchanged — both still fall to the handler's 500
+// default branch.
+var (
+	ErrLockRepo  = errors.New("lock repository error")
+	ErrFileWrite = errors.New("file write error")
+)
+
 // wrapStaleLock converts ErrStaleLock from the repository layer into a
 // LockConflictError so the handler returns 409 instead of 500.
 func wrapStaleLock(err error) error {
@@ -145,7 +155,7 @@ func (s *WOPIService) PutFile(ctx context.Context, token *model.AccessToken, loc
 	// Check lock if one exists
 	existingLock, err := s.lockRepo.FindByFileID(ctx, token.FileID)
 	if err != nil {
-		return nil, fmt.Errorf("check lock: %w", err)
+		return nil, fmt.Errorf("check lock: %w: %w", ErrLockRepo, err)
 	}
 	if existingLock != nil {
 		if lockID == "" || existingLock.LockID != lockID {
@@ -155,7 +165,7 @@ func (s *WOPIService) PutFile(ctx context.Context, token *model.AccessToken, loc
 
 	result, err := s.fileSvc.WriteFile(ctx, token.FileID, content)
 	if err != nil {
-		return nil, fmt.Errorf("write file: %w", err)
+		return nil, fmt.Errorf("write file: %w: %w", ErrFileWrite, err)
 	}
 
 	// LastModifiedTime is sampled at successful-write time. file-service
