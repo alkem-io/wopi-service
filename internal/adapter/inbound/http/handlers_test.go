@@ -444,6 +444,128 @@ func TestTokenHandler_Success(t *testing.T) {
 	}
 }
 
+// setupTokenHandler wires a TokenHandler over in-memory deps with one editable
+// document, returning the handler and the token repo so tests can inspect the
+// persisted AccessToken (whose ActorName becomes the CheckFileInfo
+// UserFriendlyName).
+func setupTokenHandler(t *testing.T) (*TokenHandler, *memTokenRepo, string) {
+	t.Helper()
+	fileSvc := newHandlerMockFileService()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{
+		ID:                    docID,
+		AuthorizationPolicyID: uuid.New().String(),
+		MimeType:              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	}
+	tokenRepo := &memTokenRepo{tokens: make(map[string]*model.AccessToken)}
+	tokenSvc := service.NewTokenService(
+		tokenRepo, fileSvc, &stubAuthSvc{},
+		testHandlerDiscoverySvc(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
+	)
+	return NewTokenHandler(tokenSvc, zap.NewNop()), tokenRepo, docID
+}
+
+// onlyIssuedToken returns the single AccessToken persisted during a successful
+// issuance, failing the test if there is not exactly one.
+func onlyIssuedToken(t *testing.T, repo *memTokenRepo) *model.AccessToken {
+	t.Helper()
+	if len(repo.tokens) != 1 {
+		t.Fatalf("expected exactly 1 issued token, got %d", len(repo.tokens))
+	}
+	for _, tok := range repo.tokens {
+		return tok
+	}
+	return nil
+}
+
+// #6170: alkemio-server resolves the actor's name and sends it in the token
+// request body; it must land on the AccessToken so the editor shows the real
+// name instead of "UnknownUser".
+func TestTokenHandler_UsesActorNameFromBody(t *testing.T) {
+	handler, tokenRepo, docID := setupTokenHandler(t)
+
+	body, _ := json.Marshal(map[string]string{
+		"documentId": docID,
+		"actorName":  "Ada Lovelace",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), actorIDKey, "actor-123"))
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", rr.Code, rr.Body.String())
+	}
+	if got := onlyIssuedToken(t, tokenRepo).ActorName; got != "Ada Lovelace" {
+		t.Errorf("ActorName = %q, want %q", got, "Ada Lovelace")
+	}
+}
+
+// A non-ASCII name must survive the JSON body round-trip untouched — the reason
+// the name travels in the body rather than an HTTP header.
+func TestTokenHandler_PreservesUnicodeActorName(t *testing.T) {
+	handler, tokenRepo, docID := setupTokenHandler(t)
+
+	const name = "Søren 李雷 O'Brien"
+	body, _ := json.Marshal(map[string]string{"documentId": docID, "actorName": name})
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), actorIDKey, "actor-123"))
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", rr.Code, rr.Body.String())
+	}
+	if got := onlyIssuedToken(t, tokenRepo).ActorName; got != name {
+		t.Errorf("ActorName = %q, want %q", got, name)
+	}
+}
+
+// When the body omits actorName, the handler falls back to any name carried on
+// the context (the legacy path) rather than overwriting it with "".
+func TestTokenHandler_FallsBackToContextActorName(t *testing.T) {
+	handler, tokenRepo, docID := setupTokenHandler(t)
+
+	body, _ := json.Marshal(map[string]string{"documentId": docID})
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", bytes.NewReader(body))
+	ctx := context.WithValue(req.Context(), actorIDKey, "actor-123")
+	ctx = context.WithValue(ctx, actorNameKey, "Context Name")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", rr.Code, rr.Body.String())
+	}
+	if got := onlyIssuedToken(t, tokenRepo).ActorName; got != "Context Name" {
+		t.Errorf("ActorName = %q, want %q", got, "Context Name")
+	}
+}
+
+// With no name in the body and none on the context, ActorName stays empty so
+// the WOPI service applies its own fallback — issuance must still succeed.
+func TestTokenHandler_NoActorNameLeavesEmpty(t *testing.T) {
+	handler, tokenRepo, docID := setupTokenHandler(t)
+
+	body, _ := json.Marshal(map[string]string{"documentId": docID})
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), actorIDKey, "actor-123"))
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", rr.Code, rr.Body.String())
+	}
+	if got := onlyIssuedToken(t, tokenRepo).ActorName; got != "" {
+		t.Errorf("ActorName = %q, want empty", got)
+	}
+}
+
 func TestTokenHandler_MissingActorID(t *testing.T) {
 	handler := NewTokenHandler(nil, zap.NewNop())
 
