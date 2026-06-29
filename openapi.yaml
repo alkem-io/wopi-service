@@ -18,6 +18,11 @@ components:
       type: object
     http.healthResponse:
       properties:
+        collabora:
+          type: string
+        collabora_last_success:
+          format: date-time
+          type: string
         status:
           type: string
       required:

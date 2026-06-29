@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/alkem-io/wopi-service/internal/domain/service"
+	"github.com/alkem-io/wopi-service/internal/obs"
 )
 
 // WOPIHandler handles WOPI protocol endpoints.
@@ -125,7 +126,12 @@ func (h *WOPIHandler) putFile(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, service.ErrDocumentNotFound):
 			http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
 		default:
-			h.logger.Error("PutFile failed", zap.Error(err))
+			h.logger.Error("save failed",
+				zap.String(obs.FieldEvent, obs.EventPutFile),
+				zap.String(obs.FieldOutcome, putFileOutcome(err)),
+				zap.String(obs.FieldDocumentID, token.FileID),
+				zap.Error(err),
+			)
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		}
 		return
