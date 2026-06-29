@@ -566,6 +566,31 @@ func TestTokenHandler_NoActorNameLeavesEmpty(t *testing.T) {
 	}
 }
 
+// When both the body and the context carry a name, the body wins — guarding the
+// #6170 precedence rule against a regression to "always use the context name".
+func TestTokenHandler_BodyActorNameOverridesContext(t *testing.T) {
+	handler, tokenRepo, docID := setupTokenHandler(t)
+
+	body, _ := json.Marshal(map[string]string{
+		"documentId": docID,
+		"actorName":  "Body Name",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/wopi/token", bytes.NewReader(body))
+	ctx := context.WithValue(req.Context(), actorIDKey, "actor-123")
+	ctx = context.WithValue(ctx, actorNameKey, "Context Name")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", rr.Code, rr.Body.String())
+	}
+	if got := onlyIssuedToken(t, tokenRepo).ActorName; got != "Body Name" {
+		t.Errorf("ActorName = %q, want %q", got, "Body Name")
+	}
+}
+
 func TestTokenHandler_MissingActorID(t *testing.T) {
 	handler := NewTokenHandler(nil, zap.NewNop())
 
