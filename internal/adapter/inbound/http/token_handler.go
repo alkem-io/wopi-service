@@ -30,7 +30,7 @@ type tokenRequest struct {
 	// X-Alkemio-Actor-Id header establishes identity but no longer carries the
 	// name, so the server supplies it here for the CheckFileInfo
 	// UserFriendlyName. Optional — falls back to the context name when absent.
-	ActorName string `json:"actorName"`
+	ActorName string `json:"actorName,omitempty"`
 }
 
 // ServeHTTP handles POST /wopi/token.

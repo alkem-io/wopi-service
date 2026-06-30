@@ -36,7 +36,6 @@ components:
           type: string
       required:
         - documentId
-        - actorName
       type: object
 info:
   contact:
