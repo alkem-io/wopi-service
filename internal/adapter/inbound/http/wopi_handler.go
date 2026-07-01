@@ -219,6 +219,33 @@ func (h *WOPIHandler) unlockAndRelock(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// LockStatus handles GET /wopi/files/{fileID}/lock-status. It reports whether the
+// document currently has an active (non-expired) WOPI lock, so callers outside the
+// Collabora flow — notably alkemio-server's replace-file guard — can refuse a
+// backing-file swap while the document is being edited. Read-only; the route is
+// gated by the server-trusted actor header (not a WOPI access token, since this is
+// not a Collabora callback).
+func (h *WOPIHandler) LockStatus(w http.ResponseWriter, r *http.Request) {
+	fileID := chi.URLParam(r, "fileID")
+	if fileID == "" {
+		http.Error(w, `{"error":"missing fileID"}`, http.StatusBadRequest)
+		return
+	}
+
+	locked, lock, err := h.wopiSvc.HasActiveLock(r.Context(), fileID)
+	if err != nil {
+		h.logger.Error("lock status check failed", zap.String("fileID", fileID), zap.Error(err))
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	resp := LockStatusResponse{Locked: locked}
+	if locked && lock != nil {
+		resp.ExpiresAt = lock.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	resp.Render(w)
+}
+
 func (h *WOPIHandler) handleLockError(w http.ResponseWriter, err error) {
 	var conflictErr *service.LockConflictError
 	if errors.As(err, &conflictErr) {

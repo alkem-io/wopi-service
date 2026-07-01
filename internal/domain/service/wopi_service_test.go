@@ -399,6 +399,41 @@ func TestPutFile_LockMatch(t *testing.T) {
 	}
 }
 
+func TestHasActiveLock_NoLock(t *testing.T) {
+	svc := NewWOPIService(newMockFileService(), newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
+
+	locked, lock, err := svc.HasActiveLock(context.Background(), uuid.New().String())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if locked || lock != nil {
+		t.Errorf("expected no active lock, got locked=%v lock=%v", locked, lock)
+	}
+}
+
+func TestHasActiveLock_ActiveLock(t *testing.T) {
+	docID := uuid.New().String()
+	lockRepo := newMockLockRepo()
+	lockRepo.locks[docID] = &model.Lock{
+		FileID:    docID,
+		LockID:    "lock-A",
+		ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	svc := NewWOPIService(newMockFileService(), lockRepo, "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
+
+	locked, lock, err := svc.HasActiveLock(context.Background(), docID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !locked || lock == nil {
+		t.Fatalf("expected active lock, got locked=%v lock=%v", locked, lock)
+	}
+	if lock.LockID != "lock-A" {
+		t.Errorf("expected lock-A, got %s", lock.LockID)
+	}
+}
+
 // --- Additional error path tests ---
 
 func TestGetFile_DocumentNotFound(t *testing.T) {

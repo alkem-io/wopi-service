@@ -121,12 +121,71 @@ func reqWithToken(method, path string, body io.Reader, token *model.AccessToken)
 	return req.WithContext(ctx)
 }
 
+// helper: create a GET request carrying the chi {fileID} URL param
+func reqWithFileIDParam(path, fileID string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("fileID", fileID)
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
 func setupWOPIHandler() (*WOPIHandler, *handlerMockFileService, *handlerMockLockRepo) {
 	fileSvc := newHandlerMockFileService()
 	lockRepo := newHandlerMockLockRepo()
 	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 	handler := NewWOPIHandler(wopiSvc, nil, zap.NewNop())
 	return handler, fileSvc, lockRepo
+}
+
+// --- LockStatus tests ---
+
+func TestWOPIHandler_LockStatus_NoLock(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+
+	rr := httptest.NewRecorder()
+	handler.LockStatus(rr, reqWithFileIDParam("/wopi/files/"+docID+"/lock-status", docID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp LockStatusResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp.Locked {
+		t.Error("expected locked=false when no lock exists")
+	}
+	if resp.ExpiresAt != "" {
+		t.Errorf("expected empty expiresAt, got %q", resp.ExpiresAt)
+	}
+}
+
+func TestWOPIHandler_LockStatus_Locked(t *testing.T) {
+	handler, _, lockRepo := setupWOPIHandler()
+	docID := uuid.New().String()
+	lockRepo.locks[docID] = &model.Lock{
+		FileID:    docID,
+		LockID:    "lock-A",
+		ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	rr := httptest.NewRecorder()
+	handler.LockStatus(rr, reqWithFileIDParam("/wopi/files/"+docID+"/lock-status", docID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp LockStatusResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !resp.Locked {
+		t.Error("expected locked=true when an active lock exists")
+	}
+	if resp.ExpiresAt == "" {
+		t.Error("expected non-empty expiresAt when locked")
+	}
 }
 
 // --- CheckFileInfo tests ---
