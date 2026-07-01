@@ -48,6 +48,23 @@ func (r TokenIssuanceResponse) Render(w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(r) //nolint:gosec // G117: AccessToken is intentionally returned to client
 }
 
+// LockStatusResponse is returned by GET /wopi/files/{fileID}/lock-status.
+// `Locked` reports whether an active (non-expired) WOPI lock exists — i.e. the
+// document is currently being edited in Collabora. `ExpiresAt` (RFC3339) is
+// advisory and present only when locked. Consumed by alkemio-server's
+// replace-file guard.
+type LockStatusResponse struct {
+	Locked    bool   `json:"locked"`
+	ExpiresAt string `json:"expiresAt,omitempty"`
+}
+
+// Render writes the lock-status response as JSON with 200 OK.
+func (r LockStatusResponse) Render(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(r)
+}
+
 // ErrorResponse is the standard error response body.
 type ErrorResponse struct {
 	Error string `json:"error"`
