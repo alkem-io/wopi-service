@@ -25,6 +25,12 @@ func NewTokenHandler(tokenSvc *service.TokenService, logger *zap.Logger) *TokenH
 
 type tokenRequest struct {
 	DocumentID string `json:"documentId"`
+	// ActorName is the actor's human-readable name, resolved by alkemio-server
+	// from the actor's profile and sent in the body (#6170). forwardAuth's
+	// X-Alkemio-Actor-Id header establishes identity but no longer carries the
+	// name, so the server supplies it here for the CheckFileInfo
+	// UserFriendlyName. Optional — falls back to the context name when absent.
+	ActorName string `json:"actorName,omitempty"`
 }
 
 // ServeHTTP handles POST /wopi/token.
@@ -50,7 +56,13 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	actorName := ActorNameFromContext(r.Context())
+	// Prefer the actor name supplied by alkemio-server in the request body
+	// (#6170); fall back to any name carried on the context (currently none —
+	// the forwardAuth header has no name).
+	actorName := req.ActorName
+	if actorName == "" {
+		actorName = ActorNameFromContext(r.Context())
+	}
 	result, err := h.tokenSvc.IssueToken(r.Context(), actorID, actorName, req.DocumentID)
 	if err != nil {
 		switch {

@@ -33,8 +33,9 @@ const (
 //
 // Display name: previously derived from Kratos session traits inlined into
 // the Oathkeeper id_token. Not propagated by the new forwardAuth header.
-// TODO: fetch display name via NATS AuthService (already wired in this
-// service) when issuing a token; until then ActorNameFromContext returns "".
+// It is now supplied by alkemio-server in the /wopi/token request body
+// (#6170, resolved from the actor's profile); ActorNameFromContext stays ""
+// for the header path and the TokenHandler prefers the body value.
 func ActorHeaderMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		actorID := strings.TrimSpace(r.Header.Get(HeaderActorID))

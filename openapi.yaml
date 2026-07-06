@@ -30,6 +30,8 @@ components:
       type: object
     http.tokenRequest:
       properties:
+        actorName:
+          type: string
         documentId:
           type: string
       required:
