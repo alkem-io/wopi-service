@@ -75,7 +75,11 @@ func (m *handlerMockLockRepo) Create(_ context.Context, lock *model.Lock) error 
 	return nil
 }
 func (m *handlerMockLockRepo) FindByFileID(_ context.Context, fileID string) (*model.Lock, error) {
-	return m.locks[fileID], nil
+	// Mirror the real repository's "active = non-expired" contract.
+	if lock := m.locks[fileID]; lock != nil && !lock.IsExpired() {
+		return lock, nil
+	}
+	return nil, nil
 }
 func (m *handlerMockLockRepo) UpdateLockID(_ context.Context, fileID, currentLockID, newLockID string, lock model.Lock) error {
 	existing, ok := m.locks[fileID]
@@ -185,6 +189,30 @@ func TestWOPIHandler_LockStatus_Locked(t *testing.T) {
 	}
 	if resp.ExpiresAt == "" {
 		t.Error("expected non-empty expiresAt when locked")
+	}
+}
+
+func TestWOPIHandler_LockStatus_Expired(t *testing.T) {
+	handler, _, lockRepo := setupWOPIHandler()
+	docID := uuid.New().String()
+	lockRepo.locks[docID] = &model.Lock{
+		FileID:    docID,
+		LockID:    "lock-A",
+		ExpiresAt: time.Now().Add(-1 * time.Minute), // already expired
+	}
+
+	rr := httptest.NewRecorder()
+	handler.LockStatus(rr, reqWithFileIDParam("/wopi/files/"+docID+"/lock-status", docID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp LockStatusResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp.Locked {
+		t.Error("expected locked=false for an expired lock")
 	}
 }
 
