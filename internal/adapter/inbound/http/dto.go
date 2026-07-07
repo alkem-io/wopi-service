@@ -55,7 +55,7 @@ func (r TokenIssuanceResponse) Render(w http.ResponseWriter) {
 // replace-file guard.
 type LockStatusResponse struct {
 	Locked    bool   `json:"locked"`
-	ExpiresAt string `json:"expiresAt,omitempty"`
+	ExpiresAt string `json:"expiresAt,omitempty" apispec:"format=date-time"`
 }
 
 // Render writes the lock-status response as JSON with 200 OK.

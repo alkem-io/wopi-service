@@ -130,7 +130,11 @@ func reqWithFileIDParam(path, fileID string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("fileID", fileID)
-	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	// Stamp the actor id the same way ActorHeaderMiddleware would, so the
+	// handler's identity guard sees an authenticated caller.
+	ctx = context.WithValue(ctx, actorIDKey, "actor-123")
+	return req.WithContext(ctx)
 }
 
 func setupWOPIHandler() (*WOPIHandler, *handlerMockFileService, *handlerMockLockRepo) {
@@ -213,6 +217,25 @@ func TestWOPIHandler_LockStatus_Expired(t *testing.T) {
 	}
 	if resp.Locked {
 		t.Error("expected locked=false for an expired lock")
+	}
+}
+
+func TestWOPIHandler_LockStatus_MissingActor(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+
+	// Build a request WITHOUT an actor id in context (the middleware would
+	// normally 401 before reaching the handler; the inline guard mirrors that).
+	req := httptest.NewRequest(http.MethodGet, "/wopi/files/"+docID+"/lock-status", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("fileID", docID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rr := httptest.NewRecorder()
+	handler.LockStatus(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rr.Code)
 	}
 }
 

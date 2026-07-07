@@ -3,6 +3,7 @@ components:
     http.LockStatusResponse:
       properties:
         expiresAt:
+          format: date-time
           type: string
         locked:
           type: boolean
@@ -168,6 +169,12 @@ paths:
               schema:
                 type: string
           description: Bad Request
+        "401":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Unauthorized
         "500":
           content:
             text/plain; charset=utf-8:

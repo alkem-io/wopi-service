@@ -226,6 +226,14 @@ func (h *WOPIHandler) unlockAndRelock(w http.ResponseWriter, r *http.Request) {
 // gated by the server-trusted actor header (not a WOPI access token, since this is
 // not a Collabora callback).
 func (h *WOPIHandler) LockStatus(w http.ResponseWriter, r *http.Request) {
+	// Defense-in-depth: ActorHeaderMiddleware already rejects a missing actor,
+	// but re-checking inline mirrors the token handler and lets the OpenAPI
+	// generator (which reads response codes from the handler body) document 401.
+	if ActorIDFromContext(r.Context()) == "" {
+		http.Error(w, `{"error":"missing actor identity"}`, http.StatusUnauthorized)
+		return
+	}
+
 	fileID := chi.URLParam(r, "fileID")
 	if fileID == "" {
 		http.Error(w, `{"error":"missing fileID"}`, http.StatusBadRequest)
