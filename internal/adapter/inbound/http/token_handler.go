@@ -69,6 +69,13 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, service.ErrDocumentNotFound):
 			http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
 		case errors.Is(err, service.ErrNotAuthorized):
+			// A 403 is a legitimate authz outcome, so not an Error — but log it at
+			// Warn so an unexpected denial (e.g. a document whose policy wasn't
+			// applied) is visible rather than silent.
+			h.logger.Warn("token issuance denied: actor not authorized for document",
+				zap.String("documentId", req.DocumentID),
+				zap.String("actorId", actorID),
+			)
 			http.Error(w, `{"error":"not authorized"}`, http.StatusForbidden)
 		case errors.Is(err, model.ErrUnsupportedMIME):
 			http.Error(w, `{"error":"document type not supported for editing"}`, http.StatusUnprocessableEntity)

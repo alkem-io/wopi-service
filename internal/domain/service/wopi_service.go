@@ -299,6 +299,20 @@ func (s *WOPIService) RefreshLock(ctx context.Context, fileID, lockID string) er
 	return wrapStaleLock(s.lockRepo.RefreshExpiry(ctx, fileID, lockID, existing))
 }
 
+// HasActiveLock reports whether the file currently has an active (non-expired)
+// WOPI lock. It is a read-only query used by callers outside the Collabora
+// protocol flow — notably alkemio-server's replace-file guard, which refuses to
+// swap a document's backing file while the document is being edited. The lock is
+// returned when present so callers can surface its expiry; it is nil when no
+// active lock exists. FindByFileID already filters expired locks.
+func (s *WOPIService) HasActiveLock(ctx context.Context, fileID string) (bool, *model.Lock, error) {
+	existing, err := s.lockRepo.FindByFileID(ctx, fileID)
+	if err != nil {
+		return false, nil, fmt.Errorf("check existing lock: %w", err)
+	}
+	return existing != nil, existing, nil
+}
+
 // UnlockAndRelock atomically replaces one lock with another.
 func (s *WOPIService) UnlockAndRelock(ctx context.Context, fileID, newLockID, oldLockID string) error {
 	if newLockID == "" {
