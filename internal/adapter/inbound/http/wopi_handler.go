@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -95,9 +96,52 @@ func (h *WOPIHandler) FileOperation(w http.ResponseWriter, r *http.Request) {
 		h.unlock(w, r)
 	case "REFRESH_LOCK":
 		h.refreshLock(w, r)
+	case "RENAME_FILE":
+		h.renameFile(w, r)
 	default:
 		http.Error(w, `{"error":"unknown X-WOPI-Override"}`, http.StatusBadRequest)
 	}
+}
+
+// renameFile handles POST /wopi/files/{fileID} with X-WOPI-Override: RENAME_FILE.
+//
+// The document name is authoritative on the Alkemio side (renamed via GraphQL,
+// which updates both the profile and the file-service document). Collabora only
+// sends this when the host asks it to relabel via an Action_RenameFile
+// postMessage — issued right AFTER that rename lands — so we do not persist the
+// requested name here. Instead we re-read the current name and echo it back
+// (base name, no extension, per the WOPI spec — Collabora keeps the extension).
+//
+// This also makes an in-editor rename safe: Collabora would post the user's
+// requested name, but we return the unchanged backend name, so its title bar
+// reverts to the truth instead of silently drifting from the persisted name.
+func (h *WOPIHandler) renameFile(w http.ResponseWriter, r *http.Request) {
+	token := TokenFromContext(r.Context())
+	if token == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	if !token.HasPermission("write") {
+		http.Error(w, `{"error":"not authorized"}`, http.StatusForbidden)
+		return
+	}
+
+	info, err := h.wopiSvc.CheckFileInfo(r.Context(), token)
+	if err != nil {
+		if errors.Is(err, service.ErrDocumentNotFound) {
+			http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
+			return
+		}
+		h.logger.Error("RenameFile failed", zap.String(obs.FieldDocumentID, token.FileID), zap.Error(err))
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// WOPI RenameFile responds with the base name, extension stripped.
+	name := strings.TrimSuffix(info.BaseFileName, filepath.Ext(info.BaseFileName))
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"Name": name})
 }
 
 // PutFileContents handles POST /wopi/files/{fileID}/contents.

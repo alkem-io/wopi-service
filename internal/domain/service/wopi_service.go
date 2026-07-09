@@ -120,6 +120,8 @@ func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToke
 		UserCanWrite:            canWrite,
 		SupportsLocks:           true,
 		SupportsUpdate:          canWrite,
+		SupportsRename:          true,
+		UserCanRename:           canWrite,
 		UserCanNotWriteRelative: true,
 		ReadOnly:                !canWrite,
 		LastModifiedTime:        lastModified,

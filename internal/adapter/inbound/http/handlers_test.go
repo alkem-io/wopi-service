@@ -268,6 +268,9 @@ func TestWOPIHandler_CheckFileInfo_Success(t *testing.T) {
 	if !info.UserCanWrite {
 		t.Error("expected UserCanWrite=true")
 	}
+	if !info.UserCanRename || !info.SupportsRename {
+		t.Error("expected SupportsRename=true and UserCanRename=true for a writer (enables live relabel)")
+	}
 }
 
 func TestWOPIHandler_CheckFileInfo_NotFound(t *testing.T) {
@@ -507,6 +510,57 @@ func TestWOPIHandler_UnknownOverride(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
+// --- RenameFile tests ---
+
+// RENAME_FILE echoes the authoritative current name (extension stripped), NOT the
+// requested one — the Alkemio side owns the name, so a host-driven relabel lands
+// on truth and an in-editor rename reverts.
+func TestWOPIHandler_RenameFile_EchoesCurrentName(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "new.xlsx", ExternalID: "ext-1"}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+	req.Header.Set("X-WOPI-RequestedName", "something-else")
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp["Name"] != "new" {
+		t.Errorf("Name = %q, want %q (current base name, extension stripped)", resp["Name"], "new")
+	}
+}
+
+func TestWOPIHandler_RenameFile_ForbiddenWithoutWrite(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "new.xlsx"}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rr.Code)
 	}
 }
 
