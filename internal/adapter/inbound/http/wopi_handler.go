@@ -12,22 +12,33 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
+	"github.com/alkem-io/wopi-service/internal/domain/port"
 	"github.com/alkem-io/wopi-service/internal/domain/service"
 	"github.com/alkem-io/wopi-service/internal/obs"
 )
 
+// renameFileEvent is the body published to the server (RenameTopic) to persist a
+// rename. `documentId` is the storage Document id (= token.FileID); `displayName`
+// is the new base name WITHOUT extension.
+type renameFileEvent struct {
+	DocumentID  string `json:"documentId"`
+	DisplayName string `json:"displayName"`
+}
+
 // WOPIHandler handles WOPI protocol endpoints.
 type WOPIHandler struct {
-	wopiSvc *service.WOPIService
-	window  *service.ContributionWindow
-	logger  *zap.Logger
+	wopiSvc   *service.WOPIService
+	window    *service.ContributionWindow
+	publisher port.QueuePublisher
+	logger    *zap.Logger
 }
 
 // NewWOPIHandler creates a new WOPIHandler. window may be nil (contribution
 // tracking is best-effort and optional); callers that want tracking pass a
-// live *service.ContributionWindow.
-func NewWOPIHandler(wopiSvc *service.WOPIService, window *service.ContributionWindow, logger *zap.Logger) *WOPIHandler {
-	return &WOPIHandler{wopiSvc: wopiSvc, window: window, logger: logger}
+// live *service.ContributionWindow. publisher may be nil (rename events are
+// then dropped); pass a live publisher to persist in-editor renames.
+func NewWOPIHandler(wopiSvc *service.WOPIService, window *service.ContributionWindow, publisher port.QueuePublisher, logger *zap.Logger) *WOPIHandler {
+	return &WOPIHandler{wopiSvc: wopiSvc, window: window, publisher: publisher, logger: logger}
 }
 
 // CheckFileInfo handles GET /wopi/files/{fileID}.
@@ -105,16 +116,19 @@ func (h *WOPIHandler) FileOperation(w http.ResponseWriter, r *http.Request) {
 
 // renameFile handles POST /wopi/files/{fileID} with X-WOPI-Override: RENAME_FILE.
 //
-// The document name is authoritative on the Alkemio side (renamed via GraphQL,
-// which updates both the profile and the file-service document). Collabora only
-// sends this when the host asks it to relabel via an Action_RenameFile
-// postMessage — issued right AFTER that rename lands — so we do not persist the
-// requested name here. Instead we re-read the current name and echo it back
-// (base name, no extension, per the WOPI spec — Collabora keeps the extension).
+// Collabora issues this whenever a document is renamed inside the editor — either
+// by the user via its own Rename UI, or in response to a host Action_RenameFile
+// postMessage. CheckFileInfo advertises SupportsRename + UserCanRename (writers
+// only), which is what makes Collabora accept both.
 //
-// This also makes an in-editor rename safe: Collabora would post the user's
-// requested name, but we return the unchanged backend name, so its title bar
-// reverts to the truth instead of silently drifting from the persisted name.
+// The server is the rename authority. We publish an OFFICE_DOCUMENT_RENAME event
+// (fire-and-forget) so the server renames the CollaboraDocument the same way the
+// in-app header does — updating BOTH the profile (callout title) and the backing
+// file-service document — then echo the requested base name back to Collabora so
+// it relabels its title bar immediately. The two stores reconcile within the
+// event's processing window; on the rare failure the name simply reverts on the
+// next open. X-WOPI-RequestedName is the base name without extension (Collabora
+// keeps the extension); we strip defensively.
 func (h *WOPIHandler) renameFile(w http.ResponseWriter, r *http.Request) {
 	token := TokenFromContext(r.Context())
 	if token == nil {
@@ -126,20 +140,35 @@ func (h *WOPIHandler) renameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := h.wopiSvc.CheckFileInfo(r.Context(), token)
-	if err != nil {
-		if errors.Is(err, service.ErrDocumentNotFound) {
-			http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
+	requested := strings.TrimSpace(r.Header.Get("X-WOPI-RequestedName"))
+	name := strings.TrimSuffix(requested, filepath.Ext(requested))
+	if name == "" {
+		// No usable requested name — fall back to the current name so Collabora
+		// still gets a valid, unchanged response rather than an error.
+		info, err := h.wopiSvc.CheckFileInfo(r.Context(), token)
+		if err != nil {
+			if errors.Is(err, service.ErrDocumentNotFound) {
+				http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
+				return
+			}
+			h.logger.Error("RenameFile failed", zap.String(obs.FieldDocumentID, token.FileID), zap.Error(err))
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}
-		h.logger.Error("RenameFile failed", zap.String(obs.FieldDocumentID, token.FileID), zap.Error(err))
-		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-		return
+		name = strings.TrimSuffix(info.BaseFileName, filepath.Ext(info.BaseFileName))
+	} else if h.publisher != nil {
+		// Persist authoritatively via the server. Best-effort: a publish failure
+		// must not fail the in-editor rename — log and let it reconcile on reopen.
+		if err := h.publisher.Publish(service.RenameTopic, renameFileEvent{
+			DocumentID:  token.FileID,
+			DisplayName: name,
+		}); err != nil {
+			h.logger.Error("RenameFile publish failed",
+				zap.String(obs.FieldDocumentID, token.FileID), zap.Error(err))
+		}
 	}
 
 	// WOPI RenameFile responds with the base name, extension stripped.
-	name := strings.TrimSuffix(info.BaseFileName, filepath.Ext(info.BaseFileName))
-
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"Name": name})
 }

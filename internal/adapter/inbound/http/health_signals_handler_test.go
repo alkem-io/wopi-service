@@ -94,7 +94,7 @@ func TestPutFile_WriteFailed_EmitsRecord(t *testing.T) {
 		&errFileSvc{doc: &model.Document{ID: docID}, writeErr: errors.New("file-service 500")},
 		newHandlerMockLockRepo(), "https://wopi.example.com", "", 0, logger,
 	)
-	handler := NewWOPIHandler(wopiSvc, nil, logger)
+	handler := NewWOPIHandler(wopiSvc, nil, &mockPublisher{}, logger)
 
 	rr := httptest.NewRecorder()
 	handler.PutFileContents(rr, putFileReq(docID, "read,write"))
@@ -121,7 +121,7 @@ func TestPutFile_LockRepoError_EmitsRecord(t *testing.T) {
 		&errLockRepo{findErr: errors.New("lock db down")},
 		"https://wopi.example.com", "", 0, logger,
 	)
-	handler := NewWOPIHandler(wopiSvc, nil, logger)
+	handler := NewWOPIHandler(wopiSvc, nil, &mockPublisher{}, logger)
 
 	rr := httptest.NewRecorder()
 	handler.PutFileContents(rr, putFileReq(docID, "read,write"))
@@ -175,7 +175,7 @@ func setupWOPIHandlerWith(logger *zap.Logger) (*WOPIHandler, *handlerMockFileSer
 	fileSvc := newHandlerMockFileService()
 	lockRepo := newHandlerMockLockRepo()
 	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "", 4*time.Hour, logger)
-	return NewWOPIHandler(wopiSvc, nil, logger), fileSvc, lockRepo
+	return NewWOPIHandler(wopiSvc, nil, &mockPublisher{}, logger), fileSvc, lockRepo
 }
 
 // ================= T009: token-issuance signal + status pins (US2) =================

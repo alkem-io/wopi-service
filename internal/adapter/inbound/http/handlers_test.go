@@ -137,11 +137,26 @@ func reqWithFileIDParam(path, fileID string) *http.Request {
 	return req.WithContext(ctx)
 }
 
+// mockPublisher records the events the handler publishes so rename tests can
+// assert the authoritative rename was emitted to the server.
+type mockPublisher struct {
+	topics   []string
+	payloads []any
+	err      error
+}
+
+func (m *mockPublisher) Publish(topic string, payload any) error {
+	m.topics = append(m.topics, topic)
+	m.payloads = append(m.payloads, payload)
+	return m.err
+}
+func (m *mockPublisher) Close() error { return nil }
+
 func setupWOPIHandler() (*WOPIHandler, *handlerMockFileService, *handlerMockLockRepo) {
 	fileSvc := newHandlerMockFileService()
 	lockRepo := newHandlerMockLockRepo()
 	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
-	handler := NewWOPIHandler(wopiSvc, nil, zap.NewNop())
+	handler := NewWOPIHandler(wopiSvc, nil, &mockPublisher{}, zap.NewNop())
 	return handler, fileSvc, lockRepo
 }
 
@@ -515,20 +530,19 @@ func TestWOPIHandler_UnknownOverride(t *testing.T) {
 
 // --- RenameFile tests ---
 
-// RENAME_FILE echoes the authoritative current name (extension stripped), NOT the
-// requested one — the Alkemio side owns the name, so a host-driven relabel lands
-// on truth and an in-editor rename reverts.
-func TestWOPIHandler_RenameFile_EchoesCurrentName(t *testing.T) {
+// RENAME_FILE persists the requested name authoritatively (publishes to the server)
+// and echoes it back to Collabora (extension stripped) so the editor relabels.
+func TestWOPIHandler_RenameFile_PersistsAndEchoesRequestedName(t *testing.T) {
 	handler, fileSvc, _ := setupWOPIHandler()
 	docID := uuid.New().String()
-	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "new.xlsx", ExternalID: "ext-1"}
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "old.xlsx", ExternalID: "ext-1"}
 
 	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
 		ExpiresAt: time.Now().Add(1 * time.Hour)}
 
 	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
 	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
-	req.Header.Set("X-WOPI-RequestedName", "something-else")
+	req.Header.Set("X-WOPI-RequestedName", "brand new name")
 
 	rr := httptest.NewRecorder()
 	handler.FileOperation(rr, req)
@@ -540,8 +554,46 @@ func TestWOPIHandler_RenameFile_EchoesCurrentName(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if resp["Name"] != "new" {
-		t.Errorf("Name = %q, want %q (current base name, extension stripped)", resp["Name"], "new")
+	if resp["Name"] != "brand new name" {
+		t.Errorf("Name = %q, want the requested base name", resp["Name"])
+	}
+
+	// The authoritative rename was published to the server for persistence.
+	pub := handler.publisher.(*mockPublisher)
+	if len(pub.topics) != 1 || pub.topics[0] != service.RenameTopic {
+		t.Fatalf("topics = %v, want one %q", pub.topics, service.RenameTopic)
+	}
+	ev, ok := pub.payloads[0].(renameFileEvent)
+	if !ok || ev.DocumentID != docID || ev.DisplayName != "brand new name" {
+		t.Errorf("published event = %+v, want {DocumentID:%s DisplayName:%q}", pub.payloads[0], docID, "brand new name")
+	}
+}
+
+// With no requested name we fall back to the current name and do NOT publish.
+func TestWOPIHandler_RenameFile_FallsBackToCurrentNameWhenNoneRequested(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "current.xlsx", ExternalID: "ext-1"}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp map[string]string
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["Name"] != "current" {
+		t.Errorf("Name = %q, want %q (current base name)", resp["Name"], "current")
+	}
+	if pub := handler.publisher.(*mockPublisher); len(pub.topics) != 0 {
+		t.Errorf("expected no publish when no name was requested, got %v", pub.topics)
 	}
 }
 
@@ -1141,7 +1193,7 @@ func TestNewRouter_Constructs(t *testing.T) {
 	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 
 	tokenHandler := NewTokenHandler(tokenSvc, zap.NewNop())
-	wopiHandler := NewWOPIHandler(wopiSvc, nil, zap.NewNop())
+	wopiHandler := NewWOPIHandler(wopiSvc, nil, &mockPublisher{}, zap.NewNop())
 	discClient := &mockDiscoveryClientForHandler{data: &port.DiscoveryData{}}
 	discSvc := service.NewDiscoveryService(discClient, zap.NewNop())
 	discoveryHandler := NewDiscoveryHandler(discSvc, zap.NewNop())

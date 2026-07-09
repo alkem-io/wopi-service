@@ -136,6 +136,7 @@ type services struct {
 	discovery    *service.DiscoveryService
 	cleanup      *service.CleanupService
 	contribution *service.ContributionWindow
+	publisher    port.QueuePublisher
 }
 
 // httpHandlers holds all inbound HTTP handler instances.
@@ -189,13 +190,14 @@ func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services
 		discovery:    discoverySvc,
 		cleanup:      service.NewCleanupService(a.tokenRepo, a.lockRepo, logger),
 		contribution: service.NewContributionWindow(a.publisher, cfg.ContributionWindow, logger),
+		publisher:    a.publisher,
 	}
 }
 
 func createHandlers(s services, pool *pgxpool.Pool, nc *nats.Conn, logger *zap.Logger) httpHandlers {
 	return httpHandlers{
 		token:     wopihttp.NewTokenHandler(s.token, logger),
-		wopi:      wopihttp.NewWOPIHandler(s.wopi, s.contribution, logger),
+		wopi:      wopihttp.NewWOPIHandler(s.wopi, s.contribution, s.publisher, logger),
 		health:    wopihttp.NewHealthHandler(pool, nc, s.discovery, logger),
 		discovery: wopihttp.NewDiscoveryHandler(s.discovery, logger),
 	}
