@@ -13,13 +13,13 @@ type FileInfo struct {
 	UserCanWrite     bool   `json:"UserCanWrite"`
 	SupportsLocks    bool   `json:"SupportsLocks"`
 	SupportsUpdate   bool   `json:"SupportsUpdate"`
-	// SupportsRename + UserCanRename advertise the WOPI RenameFile operation so
-	// Collabora accepts a host-initiated Action_RenameFile postMessage (writers
-	// only) and relabels its title bar live. On rename the handler persists the
-	// new name authoritatively via the server and echoes it straight back to
-	// Collabora (see wopi_handler.go renameFile). The Alkemio side stays the
-	// source of truth, so if that persist fails the name reverts to the stored
-	// value on reopen rather than drifting.
+	// SupportsRename + UserCanRename advertise the WOPI RenameFile operation, which
+	// enables Collabora's in-editor Rename for write-capable users. On rename the
+	// handler persists the new name authoritatively via the server and echoes it
+	// straight back to Collabora so it relabels its title bar immediately (see
+	// wopi_handler.go renameFile). The Alkemio side stays the source of truth, so
+	// if that persist fails the name reverts to the stored value on reopen rather
+	// than drifting.
 	SupportsRename          bool   `json:"SupportsRename"`
 	UserCanRename           bool   `json:"UserCanRename"`
 	UserCanNotWriteRelative bool   `json:"UserCanNotWriteRelative"`

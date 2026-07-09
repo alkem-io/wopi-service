@@ -116,10 +116,9 @@ func (h *WOPIHandler) FileOperation(w http.ResponseWriter, r *http.Request) {
 
 // renameFile handles POST /wopi/files/{fileID} with X-WOPI-Override: RENAME_FILE.
 //
-// Collabora issues this whenever a document is renamed inside the editor — either
-// by the user via its own Rename UI, or in response to a host Action_RenameFile
-// postMessage. CheckFileInfo advertises SupportsRename + UserCanRename (writers
-// only), which is what makes Collabora accept both.
+// Collabora issues this whenever a document is renamed from its in-editor Rename
+// UI. CheckFileInfo advertises SupportsRename + UserCanRename (writers only),
+// which is what exposes that UI.
 //
 // The server is the rename authority. We publish an OFFICE_DOCUMENT_RENAME event
 // (fire-and-forget) so the server renames the CollaboraDocument the same way the
