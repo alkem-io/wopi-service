@@ -542,7 +542,7 @@ func TestWOPIHandler_RenameFile_PersistsAndEchoesRequestedName(t *testing.T) {
 
 	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
 	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
-	req.Header.Set("X-WOPI-RequestedName", "brand new name")
+	req.Header.Set("X-WOPI-RequestedName", "Q3.Final v1.2")
 
 	rr := httptest.NewRecorder()
 	handler.FileOperation(rr, req)
@@ -554,7 +554,7 @@ func TestWOPIHandler_RenameFile_PersistsAndEchoesRequestedName(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if resp["Name"] != "brand new name" {
+	if resp["Name"] != "Q3.Final v1.2" {
 		t.Errorf("Name = %q, want the requested base name", resp["Name"])
 	}
 
@@ -564,8 +564,8 @@ func TestWOPIHandler_RenameFile_PersistsAndEchoesRequestedName(t *testing.T) {
 		t.Fatalf("topics = %v, want one %q", pub.topics, service.RenameTopic)
 	}
 	ev, ok := pub.payloads[0].(renameFileEvent)
-	if !ok || ev.DocumentID != docID || ev.DisplayName != "brand new name" {
-		t.Errorf("published event = %+v, want {DocumentID:%s DisplayName:%q}", pub.payloads[0], docID, "brand new name")
+	if !ok || ev.DocumentID != docID || ev.DisplayName != "Q3.Final v1.2" {
+		t.Errorf("published event = %+v, want {DocumentID:%s DisplayName:%q}", pub.payloads[0], docID, "Q3.Final v1.2")
 	}
 }
 

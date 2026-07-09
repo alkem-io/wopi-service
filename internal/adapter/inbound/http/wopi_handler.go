@@ -126,8 +126,9 @@ func (h *WOPIHandler) FileOperation(w http.ResponseWriter, r *http.Request) {
 // file-service document — then echo the requested base name back to Collabora so
 // it relabels its title bar immediately. The two stores reconcile within the
 // event's processing window; on the rare failure the name simply reverts on the
-// next open. X-WOPI-RequestedName is the base name without extension (Collabora
-// keeps the extension); we strip defensively.
+// next open. X-WOPI-RequestedName is already the base name WITHOUT extension
+// (Collabora keeps the extension), so it is used as-is — stripping it would eat a
+// trailing dotted segment of a legitimate name (e.g. "Q3.Final" → "Q3").
 func (h *WOPIHandler) renameFile(w http.ResponseWriter, r *http.Request) {
 	token := TokenFromContext(r.Context())
 	if token == nil {
@@ -139,11 +140,12 @@ func (h *WOPIHandler) renameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requested := strings.TrimSpace(r.Header.Get("X-WOPI-RequestedName"))
-	name := strings.TrimSuffix(requested, filepath.Ext(requested))
+	// X-WOPI-RequestedName is already the base name without extension — use it as-is.
+	name := strings.TrimSpace(r.Header.Get("X-WOPI-RequestedName"))
 	if name == "" {
 		// No usable requested name — fall back to the current name so Collabora
-		// still gets a valid, unchanged response rather than an error.
+		// still gets a valid, unchanged response rather than an error. BaseFileName
+		// carries the extension here, so strip it back to the base name.
 		info, err := h.wopiSvc.CheckFileInfo(r.Context(), token)
 		if err != nil {
 			if errors.Is(err, service.ErrDocumentNotFound) {
@@ -167,7 +169,7 @@ func (h *WOPIHandler) renameFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// WOPI RenameFile responds with the base name, extension stripped.
+	// WOPI RenameFile responds with the (extension-free) base name.
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"Name": name})
 }
