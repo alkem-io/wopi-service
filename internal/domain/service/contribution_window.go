@@ -28,6 +28,15 @@ const (
 	// delivered onto (shared with the memo INFO/SAVE/FETCH patterns). Matches
 	// server MessagingQueue.COLLABORATION_DOCUMENT_SERVICE.
 	ContributionQueue = "collaboration-document-service"
+
+	// RenameTopic is the routing key the server consumes to persist a document
+	// rename initiated inside the editor (Collabora RenameFile → WOPI → server).
+	// Same queue/envelope as the contribution events; only the pattern differs.
+	// The server is the rename authority — it updates both the CollaboraDocument
+	// profile and the backing file-service document (keeping the callout title
+	// and the editor filename in sync). Matches
+	// CollaborativeDocumentEventPattern.OFFICE_DOCUMENT_RENAME.
+	RenameTopic = "collaboration-office-document-rename"
 )
 
 // contributionEvent is the published message body (ADR 0001):
