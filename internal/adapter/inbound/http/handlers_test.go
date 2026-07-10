@@ -616,6 +616,56 @@ func TestWOPIHandler_RenameFile_ForbiddenWithoutWrite(t *testing.T) {
 	}
 }
 
+func TestWOPIHandler_RenameFile_NotFound(t *testing.T) {
+	handler, _, _ := setupWOPIHandler() // no doc registered
+	docID := uuid.New().String()
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+	req.Header.Set("X-WOPI-RequestedName", "whatever")
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 for a deleted/unknown document", rr.Code)
+	}
+	if pub := handler.publisher.(*mockPublisher); len(pub.topics) != 0 {
+		t.Errorf("expected no rename event for a nonexistent document, got %v", pub.topics)
+	}
+}
+
+func TestWOPIHandler_RenameFile_StripsPathComponents(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "old.xlsx"}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+	req.Header.Set("X-WOPI-RequestedName", `../secret\evil name`)
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp map[string]string
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["Name"] != "evil name" {
+		t.Errorf("Name = %q, want %q (path components stripped)", resp["Name"], "evil name")
+	}
+	pub := handler.publisher.(*mockPublisher)
+	if ev, ok := pub.payloads[0].(renameFileEvent); !ok || ev.DisplayName != "evil name" {
+		t.Errorf("published DisplayName = %+v, want %q", pub.payloads[0], "evil name")
+	}
+}
+
 // --- Token handler tests ---
 
 func TestTokenHandler_Success(t *testing.T) {

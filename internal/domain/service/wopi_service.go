@@ -40,6 +40,7 @@ type WOPIService struct {
 	baseURL           string
 	postMessageOrigin string
 	maxLockLifetime   time.Duration
+	renameEnabled     bool
 	logger            *zap.Logger
 }
 
@@ -62,15 +63,32 @@ func NewWOPIService(
 	postMessageOrigin string,
 	maxLockLifetime time.Duration,
 	logger *zap.Logger,
+	opts ...WOPIServiceOption,
 ) *WOPIService {
-	return &WOPIService{
+	s := &WOPIService{
 		fileSvc:           fileSvc,
 		lockRepo:          lockRepo,
 		baseURL:           baseURL,
 		postMessageOrigin: postMessageOrigin,
 		maxLockLifetime:   maxLockLifetime,
+		renameEnabled:     true,
 		logger:            logger,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// WOPIServiceOption configures optional WOPIService behaviour.
+type WOPIServiceOption func(*WOPIService)
+
+// WithRenameEnabled controls whether CheckFileInfo advertises RenameFile. A rename
+// only persists if the rename event can reach the server, so pass false when no
+// message broker is configured — otherwise Collabora would offer a Rename that
+// silently no-ops (reverts on reopen). Defaults to enabled.
+func WithRenameEnabled(enabled bool) WOPIServiceOption {
+	return func(s *WOPIService) { s.renameEnabled = enabled }
 }
 
 // CheckFileInfo returns WOPI file metadata for a document.
@@ -120,8 +138,8 @@ func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToke
 		UserCanWrite:            canWrite,
 		SupportsLocks:           true,
 		SupportsUpdate:          canWrite,
-		SupportsRename:          true,
-		UserCanRename:           canWrite,
+		SupportsRename:          s.renameEnabled,
+		UserCanRename:           canWrite && s.renameEnabled,
 		UserCanNotWriteRelative: true,
 		ReadOnly:                !canWrite,
 		LastModifiedTime:        lastModified,

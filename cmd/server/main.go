@@ -185,8 +185,11 @@ func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services
 		discoverySvc, cfg.TokenSecret, cfg.BaseURL, cfg.CallbackURL, logger,
 	)
 	return services{
-		token:        tokenSvc,
-		wopi:         service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, cfg.FrontendOrigin, cfg.MaxLockLifetime, logger),
+		token: tokenSvc,
+		// Advertise RenameFile only when a broker is configured — otherwise the
+		// rename event is dropped and an in-editor rename would silently no-op.
+		wopi: service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, cfg.FrontendOrigin, cfg.MaxLockLifetime, logger,
+			service.WithRenameEnabled(cfg.RabbitMQ.IsConfigured())),
 		discovery:    discoverySvc,
 		cleanup:      service.NewCleanupService(a.tokenRepo, a.lockRepo, logger),
 		contribution: service.NewContributionWindow(a.publisher, cfg.ContributionWindow, logger),

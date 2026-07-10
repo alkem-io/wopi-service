@@ -140,22 +140,30 @@ func (h *WOPIHandler) renameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// X-WOPI-RequestedName is already the base name without extension — use it as-is.
-	name := strings.TrimSpace(r.Header.Get("X-WOPI-RequestedName"))
-	if name == "" {
-		// No usable requested name — fall back to the current name so Collabora
-		// still gets a valid, unchanged response rather than an error. BaseFileName
-		// carries the extension here, so strip it back to the base name.
-		info, err := h.wopiSvc.CheckFileInfo(r.Context(), token)
-		if err != nil {
-			if errors.Is(err, service.ErrDocumentNotFound) {
-				http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
-				return
-			}
-			h.logger.Error("RenameFile failed", zap.String(obs.FieldDocumentID, token.FileID), zap.Error(err))
-			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+	// Confirm the document still exists (a deleted doc / stale token must 404 like
+	// the other WOPI ops, not silently ACK a rename); also gives the current name
+	// for the fallback.
+	info, err := h.wopiSvc.CheckFileInfo(r.Context(), token)
+	if err != nil {
+		if errors.Is(err, service.ErrDocumentNotFound) {
+			http.Error(w, `{"error":"document not found"}`, http.StatusNotFound)
 			return
 		}
+		h.logger.Error("RenameFile failed", zap.String(obs.FieldDocumentID, token.FileID), zap.Error(err))
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// X-WOPI-RequestedName is already the base name without extension. Strip any
+	// path components (a display name is not a path — "../foo" / "a\b" must not
+	// travel through to the DisplayName or the download filename).
+	name := strings.TrimSpace(r.Header.Get("X-WOPI-RequestedName"))
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = strings.TrimSpace(name[i+1:])
+	}
+	if name == "" {
+		// No usable requested name — fall back to the current name. BaseFileName
+		// carries the extension here, so strip it back to the base name.
 		name = strings.TrimSuffix(info.BaseFileName, filepath.Ext(info.BaseFileName))
 	} else if h.publisher != nil {
 		// Persist authoritatively via the server. Best-effort: a publish failure
