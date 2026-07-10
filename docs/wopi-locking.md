@@ -46,7 +46,7 @@ The `locks` table enforces this: `UNIQUE (file_id)` — at most one lock row per
 > 45-min span just means the last RefreshLock landed ~15 min after creation
 > (`created + 30m` from that refresh). The TTL is **30 min**, always measured from
 > the *last* refresh.
-
+>
 > ⚠️ **Token TTL is an absolute epoch, not a duration.** The `access_token_ttl`
 > handed to Collabora is `expiresAt.UnixMilli()` — an **absolute UNIX timestamp in
 > ms** (`token_service.go:111-113`), not "8h from now" as a delta. A client bug once
@@ -198,8 +198,11 @@ cd server   # for .env.docker
 docker exec -e PGPASSWORD="$(grep -E '^POSTGRES_PASSWORD=' .env.docker | cut -d= -f2)" \
   alkemio_dev_postgres \
   psql -U "$(grep -E '^POSTGRES_USER=' .env.docker | cut -d= -f2)" -d wopi \
-  -c "DELETE FROM locks WHERE file_id='<id>' AND lock_id='<lock>';"
+  -c "DELETE FROM locks WHERE file_id='<id>' AND lock_id='<lock>' AND expires_at='<expires_at-you-saw>';"
 ```
+
+Pin `expires_at` to the value you inspected (as in the SQL block above), so a lock
+re-acquired by a new legitimate session between inspection and delete is not removed.
 
 It is safe to delete a lock whose owning `coolwsd` DocBroker is gone (e.g. after a
 Collabora restart): nothing live will ever send a RefreshLock/Unlock/PutFile carrying
