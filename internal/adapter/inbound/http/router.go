@@ -45,6 +45,15 @@ func NewRouter(deps RouterDeps) chi.Router {
 	// forwardAuth as X-Alkemio-Actor-Id header.
 	r.With(ActorHeaderMiddleware).Post("/wopi/token", deps.TokenHandler.ServeHTTP)
 
+	// Document lock status — read-only query used by alkemio-server's replace-file
+	// guard to refuse a backing-file swap while the document is being edited.
+	// Identity-gated by the server-trusted actor header (NOT a WOPI access-token
+	// route — this is not a Collabora callback). Unlike /wopi/token it does NOT
+	// authorize the caller against the document: the only thing exposed is whether
+	// the file is currently open for editing (not document-content-sensitive), and
+	// the guard cares solely about that fact, not who is asking.
+	r.With(ActorHeaderMiddleware).Get("/wopi/files/{fileID}/lock-status", deps.WOPIHandler.LockStatus)
+
 	// WOPI protocol endpoints — access token auth + proof validation
 	r.Group(func(sub chi.Router) {
 		sub.Use(TokenAuthMiddleware(deps.TokenSvc))

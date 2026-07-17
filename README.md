@@ -62,6 +62,10 @@ metadata, stream content, save, and lock the file.
   Same-lockID refreshes are never capped. Set to `0` to disable (legacy
   unbounded behaviour).
 - **Background cleanup** — a loop every 15 min deletes expired tokens and locks.
+
+> Locking, Collabora session behaviour, and dead-session / read-only recovery are
+> documented in depth in [`docs/wopi-locking.md`](docs/wopi-locking.md) — read it
+> before debugging a stuck read-only document or changing lock timing.
 - **Two-URL split** — `WOPI_BASE_URL` is the browser-facing editor origin;
   `WOPI_CALLBACK_URL` is the cluster-internal URL Collabora uses for the
   `WOPISrc` callback (defaults to `WOPI_BASE_URL`).

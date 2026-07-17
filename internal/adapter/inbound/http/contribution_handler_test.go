@@ -35,7 +35,7 @@ func setupWOPIHandlerWithWindow(pub *stubPublisher) (*WOPIHandler, *handlerMockF
 	lockRepo := newHandlerMockLockRepo()
 	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 	window := service.NewContributionWindow(pub, time.Hour, zap.NewNop())
-	handler := NewWOPIHandler(wopiSvc, window, zap.NewNop())
+	handler := NewWOPIHandler(wopiSvc, window, &mockPublisher{}, zap.NewNop())
 	return handler, fileSvc, window
 }
 

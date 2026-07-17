@@ -75,7 +75,11 @@ func (m *handlerMockLockRepo) Create(_ context.Context, lock *model.Lock) error 
 	return nil
 }
 func (m *handlerMockLockRepo) FindByFileID(_ context.Context, fileID string) (*model.Lock, error) {
-	return m.locks[fileID], nil
+	// Mirror the real repository's "active = non-expired" contract.
+	if lock := m.locks[fileID]; lock != nil && !lock.IsExpired() {
+		return lock, nil
+	}
+	return nil, nil
 }
 func (m *handlerMockLockRepo) UpdateLockID(_ context.Context, fileID, currentLockID, newLockID string, lock model.Lock) error {
 	existing, ok := m.locks[fileID]
@@ -121,12 +125,133 @@ func reqWithToken(method, path string, body io.Reader, token *model.AccessToken)
 	return req.WithContext(ctx)
 }
 
+// helper: create a GET request carrying the chi {fileID} URL param
+func reqWithFileIDParam(path, fileID string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("fileID", fileID)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	// Stamp the actor id the same way ActorHeaderMiddleware would, so the
+	// handler's identity guard sees an authenticated caller.
+	ctx = context.WithValue(ctx, actorIDKey, "actor-123")
+	return req.WithContext(ctx)
+}
+
+// mockPublisher records the events the handler publishes so rename tests can
+// assert the authoritative rename was emitted to the server.
+type mockPublisher struct {
+	topics   []string
+	payloads []any
+	err      error
+}
+
+func (m *mockPublisher) Publish(topic string, payload any) error {
+	m.topics = append(m.topics, topic)
+	m.payloads = append(m.payloads, payload)
+	return m.err
+}
+func (m *mockPublisher) Close() error { return nil }
+
 func setupWOPIHandler() (*WOPIHandler, *handlerMockFileService, *handlerMockLockRepo) {
 	fileSvc := newHandlerMockFileService()
 	lockRepo := newHandlerMockLockRepo()
 	wopiSvc := service.NewWOPIService(fileSvc, lockRepo, "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
-	handler := NewWOPIHandler(wopiSvc, nil, zap.NewNop())
+	handler := NewWOPIHandler(wopiSvc, nil, &mockPublisher{}, zap.NewNop())
 	return handler, fileSvc, lockRepo
+}
+
+// --- LockStatus tests ---
+
+func TestWOPIHandler_LockStatus_NoLock(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+
+	rr := httptest.NewRecorder()
+	handler.LockStatus(rr, reqWithFileIDParam("/wopi/files/"+docID+"/lock-status", docID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp LockStatusResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp.Locked {
+		t.Error("expected locked=false when no lock exists")
+	}
+	if resp.ExpiresAt != "" {
+		t.Errorf("expected empty expiresAt, got %q", resp.ExpiresAt)
+	}
+}
+
+func TestWOPIHandler_LockStatus_Locked(t *testing.T) {
+	handler, _, lockRepo := setupWOPIHandler()
+	docID := uuid.New().String()
+	lockRepo.locks[docID] = &model.Lock{
+		FileID:    docID,
+		LockID:    "lock-A",
+		ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	rr := httptest.NewRecorder()
+	handler.LockStatus(rr, reqWithFileIDParam("/wopi/files/"+docID+"/lock-status", docID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp LockStatusResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !resp.Locked {
+		t.Error("expected locked=true when an active lock exists")
+	}
+	if resp.ExpiresAt == "" {
+		t.Error("expected non-empty expiresAt when locked")
+	}
+}
+
+func TestWOPIHandler_LockStatus_Expired(t *testing.T) {
+	handler, _, lockRepo := setupWOPIHandler()
+	docID := uuid.New().String()
+	lockRepo.locks[docID] = &model.Lock{
+		FileID:    docID,
+		LockID:    "lock-A",
+		ExpiresAt: time.Now().Add(-1 * time.Minute), // already expired
+	}
+
+	rr := httptest.NewRecorder()
+	handler.LockStatus(rr, reqWithFileIDParam("/wopi/files/"+docID+"/lock-status", docID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp LockStatusResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp.Locked {
+		t.Error("expected locked=false for an expired lock")
+	}
+}
+
+func TestWOPIHandler_LockStatus_MissingActor(t *testing.T) {
+	handler, _, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+
+	// Build a request WITHOUT an actor id in context (the middleware would
+	// normally 401 before reaching the handler; the inline guard mirrors that).
+	req := httptest.NewRequest(http.MethodGet, "/wopi/files/"+docID+"/lock-status", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("fileID", docID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rr := httptest.NewRecorder()
+	handler.LockStatus(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rr.Code)
+	}
 }
 
 // --- CheckFileInfo tests ---
@@ -157,6 +282,9 @@ func TestWOPIHandler_CheckFileInfo_Success(t *testing.T) {
 	}
 	if !info.UserCanWrite {
 		t.Error("expected UserCanWrite=true")
+	}
+	if !info.UserCanRename || !info.SupportsRename {
+		t.Error("expected SupportsRename=true and UserCanRename=true for a writer (enables live relabel)")
 	}
 }
 
@@ -397,6 +525,144 @@ func TestWOPIHandler_UnknownOverride(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
+// --- RenameFile tests ---
+
+// RENAME_FILE persists the requested name authoritatively (publishes to the server)
+// and echoes it back to Collabora (extension stripped) so the editor relabels.
+func TestWOPIHandler_RenameFile_PersistsAndEchoesRequestedName(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "old.xlsx", ExternalID: "ext-1"}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+	req.Header.Set("X-WOPI-RequestedName", "Q3.Final v1.2")
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if resp["Name"] != "Q3.Final v1.2" {
+		t.Errorf("Name = %q, want the requested base name", resp["Name"])
+	}
+
+	// The authoritative rename was published to the server for persistence.
+	pub := handler.publisher.(*mockPublisher)
+	if len(pub.topics) != 1 || pub.topics[0] != service.RenameTopic {
+		t.Fatalf("topics = %v, want one %q", pub.topics, service.RenameTopic)
+	}
+	ev, ok := pub.payloads[0].(renameFileEvent)
+	if !ok || ev.DocumentID != docID || ev.DisplayName != "Q3.Final v1.2" {
+		t.Errorf("published event = %+v, want {DocumentID:%s DisplayName:%q}", pub.payloads[0], docID, "Q3.Final v1.2")
+	}
+}
+
+// With no requested name we fall back to the current name and do NOT publish.
+func TestWOPIHandler_RenameFile_FallsBackToCurrentNameWhenNoneRequested(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "current.xlsx", ExternalID: "ext-1"}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp map[string]string
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["Name"] != "current" {
+		t.Errorf("Name = %q, want %q (current base name)", resp["Name"], "current")
+	}
+	if pub := handler.publisher.(*mockPublisher); len(pub.topics) != 0 {
+		t.Errorf("expected no publish when no name was requested, got %v", pub.topics)
+	}
+}
+
+func TestWOPIHandler_RenameFile_ForbiddenWithoutWrite(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "new.xlsx"}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rr.Code)
+	}
+}
+
+func TestWOPIHandler_RenameFile_NotFound(t *testing.T) {
+	handler, _, _ := setupWOPIHandler() // no doc registered
+	docID := uuid.New().String()
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+	req.Header.Set("X-WOPI-RequestedName", "whatever")
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 for a deleted/unknown document", rr.Code)
+	}
+	if pub := handler.publisher.(*mockPublisher); len(pub.topics) != 0 {
+		t.Errorf("expected no rename event for a nonexistent document, got %v", pub.topics)
+	}
+}
+
+func TestWOPIHandler_RenameFile_StripsPathComponents(t *testing.T) {
+	handler, fileSvc, _ := setupWOPIHandler()
+	docID := uuid.New().String()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "old.xlsx"}
+
+	token := &model.AccessToken{FileID: docID, Permissions: "read,write",
+		ExpiresAt: time.Now().Add(1 * time.Hour)}
+
+	req := reqWithToken(http.MethodPost, "/wopi/files/"+docID, nil, token)
+	req.Header.Set("X-WOPI-Override", "RENAME_FILE")
+	req.Header.Set("X-WOPI-RequestedName", `../secret\evil name`)
+
+	rr := httptest.NewRecorder()
+	handler.FileOperation(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp map[string]string
+	_ = json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["Name"] != "evil name" {
+		t.Errorf("Name = %q, want %q (path components stripped)", resp["Name"], "evil name")
+	}
+	pub := handler.publisher.(*mockPublisher)
+	if ev, ok := pub.payloads[0].(renameFileEvent); !ok || ev.DisplayName != "evil name" {
+		t.Errorf("published DisplayName = %+v, want %q", pub.payloads[0], "evil name")
 	}
 }
 
@@ -977,7 +1243,7 @@ func TestNewRouter_Constructs(t *testing.T) {
 	wopiSvc := service.NewWOPIService(fileSvc, newHandlerMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
 
 	tokenHandler := NewTokenHandler(tokenSvc, zap.NewNop())
-	wopiHandler := NewWOPIHandler(wopiSvc, nil, zap.NewNop())
+	wopiHandler := NewWOPIHandler(wopiSvc, nil, &mockPublisher{}, zap.NewNop())
 	discClient := &mockDiscoveryClientForHandler{data: &port.DiscoveryData{}}
 	discSvc := service.NewDiscoveryService(discClient, zap.NewNop())
 	discoveryHandler := NewDiscoveryHandler(discSvc, zap.NewNop())
