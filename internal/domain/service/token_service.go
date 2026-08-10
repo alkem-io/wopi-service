@@ -73,7 +73,9 @@ type TokenIssuanceResult struct {
 }
 
 // IssueToken authenticates and authorizes an actor, then creates a WOPI access token.
-func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, documentID string) (*TokenIssuanceResult, error) {
+// lang is the actor's preferred UI locale (e.g. "en", "bg"); empty means no
+// preference, and Collabora falls back to its own browser-locale detection.
+func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, documentID, lang string) (*TokenIssuanceResult, error) {
 	doc, err := s.fileSvc.FindByID(ctx, documentID)
 	if err != nil {
 		return nil, fmt.Errorf("lookup document: %w: %w", ErrDocumentLookup, err)
@@ -115,7 +117,7 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, docum
 	// Resolve editor URL BEFORE persisting token/session to avoid orphaned
 	// rows if the MIME type is unsupported or discovery is unavailable.
 	canWrite := permissions == "read,write"
-	editorURL, err := s.resolveEditorURL(ctx, doc.MimeType, wopiSrc, token, ttlMs, canWrite)
+	editorURL, err := s.resolveEditorURL(ctx, doc.MimeType, wopiSrc, token, ttlMs, canWrite, lang)
 	if err != nil {
 		return nil, fmt.Errorf("resolve editor URL: %w", err)
 	}
@@ -145,7 +147,7 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, docum
 
 // resolveEditorURL builds the Collabora editor URL for a document.
 // Ensures discovery cache is warm before looking up the editor action.
-func (s *TokenService) resolveEditorURL(ctx context.Context, mimeType, wopiSrc, accessToken string, ttlMs int64, canWrite bool) (string, error) {
+func (s *TokenService) resolveEditorURL(ctx context.Context, mimeType, wopiSrc, accessToken string, ttlMs int64, canWrite bool, lang string) (string, error) {
 	if s.discoverySvc == nil {
 		return "", ErrNoDiscoveryData
 	}
@@ -165,12 +167,15 @@ func (s *TokenService) resolveEditorURL(ctx context.Context, mimeType, wopiSrc, 
 		return "", err
 	}
 
-	return buildEditorURL(action.URLSrc, s.baseURL, wopiSrc, accessToken, ttlMs)
+	return buildEditorURL(action.URLSrc, s.baseURL, wopiSrc, accessToken, lang, ttlMs)
 }
 
 // buildEditorURL constructs the final editor URL by replacing the Collabora
-// internal host with WOPI_BASE_URL and appending WOPI parameters.
-func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken string, ttlMs int64) (string, error) {
+// internal host with WOPI_BASE_URL and appending WOPI parameters. lang, when
+// non-empty, is appended as Collabora's own `lang` query parameter so the
+// editor's UI matches the actor's Alkemio profile language instead of
+// falling back to the browser's Accept-Language detection.
+func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken, lang string, ttlMs int64) (string, error) {
 	parsed, err := url.Parse(urlSrc)
 	if err != nil {
 		return "", fmt.Errorf("malformed discovery urlsrc %q: %w", urlSrc, err)
@@ -190,12 +195,18 @@ func buildEditorURL(urlSrc, baseURL, wopiSrc, accessToken string, ttlMs int64) (
 		sep = "&"
 	}
 
-	return fmt.Sprintf("%s%s%sWOPISrc=%s&access_token=%s&access_token_ttl=%d",
+	editorURL := fmt.Sprintf("%s%s%sWOPISrc=%s&access_token=%s&access_token_ttl=%d",
 		baseURL, editorPath, sep,
 		url.QueryEscape(wopiSrc),
 		url.QueryEscape(accessToken),
 		ttlMs,
-	), nil
+	)
+
+	if lang != "" {
+		editorURL += "&lang=" + url.QueryEscape(lang)
+	}
+
+	return editorURL, nil
 }
 
 // stripWOPIPlaceholders removes WOPI urlsrc template placeholders.

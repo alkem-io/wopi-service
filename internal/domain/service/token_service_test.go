@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 	"unicode"
@@ -135,7 +136,7 @@ func TestIssueToken_Success_ReadWrite(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID)
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +182,7 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID)
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -195,6 +196,64 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 	}
 }
 
+func TestIssueToken_Lang_AppendedWhenPresent(t *testing.T) {
+	docID := uuid.New().String()
+	actorID := uuid.New().String()
+
+	fileSvc := newMockFileSvcForToken()
+	fileSvc.docs[docID] = &model.Document{
+		ID:                    docID,
+		MimeType:              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		AuthorizationPolicyID: uuid.New().String(),
+	}
+
+	authSvc := newMockAuthSvc()
+	authSvc.results[actorID+":read"] = true
+
+	svc := NewTokenService(
+		newMockTokenRepo(), fileSvc, authSvc,
+		testDiscoverySvc(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
+	)
+
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID, "bg")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.EditorURL, "&lang=bg") {
+		t.Errorf("editorUrl = %q, want it to contain &lang=bg", result.EditorURL)
+	}
+}
+
+func TestIssueToken_Lang_OmittedWhenAbsent(t *testing.T) {
+	docID := uuid.New().String()
+	actorID := uuid.New().String()
+
+	fileSvc := newMockFileSvcForToken()
+	fileSvc.docs[docID] = &model.Document{
+		ID:                    docID,
+		MimeType:              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		AuthorizationPolicyID: uuid.New().String(),
+	}
+
+	authSvc := newMockAuthSvc()
+	authSvc.results[actorID+":read"] = true
+
+	svc := NewTokenService(
+		newMockTokenRepo(), fileSvc, authSvc,
+		testDiscoverySvc(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
+	)
+
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result.EditorURL, "lang=") {
+		t.Errorf("editorUrl = %q, want no lang param when actor has no language preference", result.EditorURL)
+	}
+}
+
 func TestIssueToken_DocumentNotFound(t *testing.T) {
 	svc := NewTokenService(
 		newMockTokenRepo(), newMockFileSvcForToken(), newMockAuthSvc(),
@@ -202,7 +261,7 @@ func TestIssueToken_DocumentNotFound(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	_, err := svc.IssueToken(context.Background(), "actor", "Test User", "nonexistent")
+	_, err := svc.IssueToken(context.Background(), "actor", "Test User", "nonexistent", "")
 	if !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("expected ErrDocumentNotFound, got %v", err)
 	}
@@ -226,7 +285,7 @@ func TestIssueToken_NotAuthorized(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	_, err := svc.IssueToken(context.Background(), "actor", "Test User", docID)
+	_, err := svc.IssueToken(context.Background(), "actor", "Test User", docID, "")
 	if !errors.Is(err, ErrNotAuthorized) {
 		t.Errorf("expected ErrNotAuthorized, got %v", err)
 	}

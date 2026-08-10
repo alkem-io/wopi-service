@@ -31,6 +31,11 @@ type tokenRequest struct {
 	// name, so the server supplies it here for the CheckFileInfo
 	// UserFriendlyName. Optional — falls back to the context name when absent.
 	ActorName string `json:"actorName,omitempty"`
+	// Lang is the actor's preferred UI locale (e.g. "en", "bg"), resolved by
+	// alkemio-server from the actor's profile settings. Optional — when
+	// absent, the editor URL carries no `lang` override and Collabora falls
+	// back to its own browser Accept-Language detection.
+	Lang string `json:"lang,omitempty"`
 }
 
 // ServeHTTP handles POST /wopi/token.
@@ -63,7 +68,7 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if actorName == "" {
 		actorName = ActorNameFromContext(r.Context())
 	}
-	result, err := h.tokenSvc.IssueToken(r.Context(), actorID, actorName, req.DocumentID)
+	result, err := h.tokenSvc.IssueToken(r.Context(), actorID, actorName, req.DocumentID, req.Lang)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrDocumentNotFound):
