@@ -95,12 +95,26 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, docum
 
 	// Check write permission (optional — determines token permissions)
 	permissions := "read"
-	writeResult, err := s.authSvc.CheckPrivilege(ctx, actorID, "update-content", doc.AuthorizationPolicyID)
-	if err != nil {
-		s.logger.Warn("failed to check write privilege, defaulting to read-only",
-			zap.Error(err), zap.String("actorId", actorID))
-	} else if writeResult.Allowed {
-		permissions = "read,write"
+	if doc.MimeType == model.MimeTypePDF {
+		// PDF is forced read-only regardless of the actor's actual privilege.
+		// Annotating a PDF and letting Collabora save it corrupts the document —
+		// its background-save Kit process disconnects mid-save and Collabora
+		// forces an incomplete save rather than blocking it (confirmed via
+		// coolwsd logs: "CanSave::NoKit" / "Data loss detected... Quarantine is
+		// disabled", reproduced on both CODE 24.04.12.2.1 and 26.04.2.4.1 —
+		// alkem-io/server#6254). Read-only means Collabora's CheckFileInfo
+		// reports UserCanWrite=false, so it never offers the save path that
+		// triggers the bug. Revisit once Collabora resolves this upstream.
+		s.logger.Debug("PDF token forced read-only pending upstream Collabora fix",
+			zap.String("documentId", documentID))
+	} else {
+		writeResult, err := s.authSvc.CheckPrivilege(ctx, actorID, "update-content", doc.AuthorizationPolicyID)
+		if err != nil {
+			s.logger.Warn("failed to check write privilege, defaulting to read-only",
+				zap.Error(err), zap.String("actorId", actorID))
+		} else if writeResult.Allowed {
+			permissions = "read,write"
+		}
 	}
 
 	// Generate token

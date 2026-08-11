@@ -2,6 +2,11 @@ package model
 
 import "fmt"
 
+// MimeTypePDF is application/pdf, called out as a named constant because it
+// gets a special permissions rule in TokenService.IssueToken (always
+// read-only — see the comment there).
+const MimeTypePDF = "application/pdf"
+
 // mimeToExtension maps MIME types to file extensions for editor resolution.
 var mimeToExtension = map[string]string{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
@@ -13,9 +18,9 @@ var mimeToExtension = map[string]string{
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
 	"application/vnd.ms-powerpoint":                                             "ppt",
 	"application/vnd.oasis.opendocument.presentation":                           "odp",
-	"application/pdf":                                                           "pdf",
-	"text/plain":                                                                "txt",
-	"text/csv":                                                                  "csv",
+	MimeTypePDF:  "pdf",
+	"text/plain": "txt",
+	"text/csv":   "csv",
 }
 
 // ErrUnsupportedMIME is returned when a MIME type has no extension mapping.
