@@ -101,10 +101,10 @@ func (s *TokenService) IssueToken(ctx context.Context, actorID, actorName, docum
 		// its background-save Kit process disconnects mid-save and Collabora
 		// forces an incomplete save rather than blocking it (confirmed via
 		// coolwsd logs: "CanSave::NoKit" / "Data loss detected... Quarantine is
-		// disabled", reproduced on both CODE 24.04.12.2.1 and 26.04.2.4.1 —
-		// alkem-io/server#6254). Read-only means Collabora's CheckFileInfo
-		// reports UserCanWrite=false, so it never offers the save path that
-		// triggers the bug. Revisit once Collabora resolves this upstream.
+		// disabled", reproduced on both CODE 24.04.12.2.1 and 26.04.2.4.1).
+		// Read-only means Collabora's CheckFileInfo reports UserCanWrite=false,
+		// so it never offers the save path that triggers the bug. Revisit once
+		// Collabora resolves this upstream.
 		s.logger.Debug("PDF token forced read-only pending upstream Collabora fix",
 			zap.String("documentId", documentID))
 	} else {

@@ -199,10 +199,10 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 }
 
 // PDF annotation-then-save corrupts the document (Collabora's own background-save
-// Kit process disconnects mid-save — see alkem-io/server#6254). Until Collabora
-// fixes this upstream, PDF tokens are always read-only, regardless of the
-// actor's actual write privilege, so Collabora never offers the annotate/save
-// path that triggers the bug.
+// Kit process disconnects mid-save). Until Collabora fixes this upstream, PDF
+// tokens are always read-only, regardless of the actor's actual write
+// privilege, so Collabora never offers the annotate/save path that triggers
+// the bug.
 func TestIssueToken_PDF_AlwaysReadOnly_EvenWithWritePrivilege(t *testing.T) {
 	docID := uuid.New().String()
 	actorID := uuid.New().String()
