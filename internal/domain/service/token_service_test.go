@@ -213,7 +213,7 @@ func TestIssueToken_PDF_AlwaysReadOnly_EvenWithWritePrivilege(t *testing.T) {
 	fileSvc.docs[docID] = &model.Document{
 		ID:                    docID,
 		AuthorizationPolicyID: uuid.New().String(),
-		MimeType:              "application/pdf",
+		MimeType:              model.MimeTypePDF,
 	}
 
 	authSvc := newMockAuthSvc()
