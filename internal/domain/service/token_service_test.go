@@ -72,6 +72,7 @@ func (m *mockFileSvcForToken) FileExists(_ context.Context, _ string) (bool, err
 
 type mockAuthSvc struct {
 	results map[string]bool // key: "actorId:privilege"
+	calls   []string        // every "actorId:privilege" this mock was asked to check, in order
 }
 
 func newMockAuthSvc() *mockAuthSvc {
@@ -80,6 +81,7 @@ func newMockAuthSvc() *mockAuthSvc {
 
 func (m *mockAuthSvc) CheckPrivilege(_ context.Context, actorID, privilege, _ string) (*port.AuthResult, error) {
 	key := actorID + ":" + privilege
+	m.calls = append(m.calls, key)
 	allowed := m.results[key]
 	return &port.AuthResult{Allowed: allowed, Reason: "mock"}, nil
 }
@@ -236,6 +238,13 @@ func TestIssueToken_PDF_AlwaysReadOnly_EvenWithWritePrivilege(t *testing.T) {
 	}
 	if stored.Permissions != "read" {
 		t.Errorf("expected PDF token to be forced read-only despite write privilege, got %q", stored.Permissions)
+	}
+
+	updateContentKey := actorID + ":update-content"
+	for _, call := range authSvc.calls {
+		if call == updateContentKey {
+			t.Errorf("expected PDF issuance to skip the update-content privilege check entirely, but it was called")
+		}
 	}
 }
 
