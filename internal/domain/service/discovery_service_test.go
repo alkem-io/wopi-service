@@ -174,7 +174,31 @@ func TestFindActionByExtension_ViewPreferred(t *testing.T) {
 func TestFindActionByExtension_FallbackToView(t *testing.T) {
 	data := &port.DiscoveryData{
 		Actions: []port.DiscoveryAction{
-			{App: "Writer", Name: "view", Ext: "pdf", URLSrc: "http://collabora/view"},
+			{App: "Writer", Name: "view", Ext: "odt", URLSrc: "http://collabora/view"},
+		},
+	}
+	client := &mockDiscoveryClient{data: data}
+	svc := NewDiscoveryService(client, zap.NewNop())
+	_, _ = svc.GetDiscovery(context.Background())
+
+	action, err := svc.FindActionByExtension("odt", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if action.Name != "view" {
+		t.Errorf("expected view fallback, got %s", action.Name)
+	}
+}
+
+// The real Collabora discovery response for application/pdf advertises
+// neither "edit" nor "view" — only "view_comment" (its annotation-first PDF
+// mode). Confirmed 2026-08-07 against a live Collabora/CODE instance's
+// /hosting/discovery: <action ext="pdf" name="view_comment" urlsrc="..."/>,
+// no "edit" or "view" entry for pdf exists anywhere in the response.
+func TestFindActionByExtension_PdfFallsBackToViewComment(t *testing.T) {
+	data := &port.DiscoveryData{
+		Actions: []port.DiscoveryAction{
+			{App: "application/pdf", Name: "view_comment", Ext: "pdf", URLSrc: "http://collabora/view_comment"},
 		},
 	}
 	client := &mockDiscoveryClient{data: data}
@@ -185,8 +209,8 @@ func TestFindActionByExtension_FallbackToView(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if action.Name != "view" {
-		t.Errorf("expected view fallback, got %s", action.Name)
+	if action.Name != "view_comment" {
+		t.Errorf("expected view_comment fallback, got %s", action.Name)
 	}
 }
 

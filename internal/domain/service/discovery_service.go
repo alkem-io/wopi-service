@@ -138,6 +138,11 @@ func (s *DiscoveryService) FindActionByExtension(ext string, preferEdit bool) (*
 	}
 
 	var fallbackAction *port.DiscoveryAction
+	// Some content types (currently: PDF) have no "edit" or "view" action at
+	// all — Collabora's discovery response only advertises "view_comment"
+	// for them (its annotation-first mode). Accept it as a last-resort
+	// fallback, distinct from the edit/view pair.
+	var viewCommentAction *port.DiscoveryAction
 	for i := range s.cached.Actions {
 		a := &s.cached.Actions[i]
 		if a.Ext != ext {
@@ -149,10 +154,16 @@ func (s *DiscoveryService) FindActionByExtension(ext string, preferEdit bool) (*
 		if a.Name == fallback {
 			fallbackAction = a
 		}
+		if a.Name == "view_comment" {
+			viewCommentAction = a
+		}
 	}
 
 	if fallbackAction != nil {
 		return fallbackAction, nil
+	}
+	if viewCommentAction != nil {
+		return viewCommentAction, nil
 	}
 
 	return nil, ErrUnsupportedExtension

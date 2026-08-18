@@ -72,6 +72,7 @@ func (m *mockFileSvcForToken) FileExists(_ context.Context, _ string) (bool, err
 
 type mockAuthSvc struct {
 	results map[string]bool // key: "actorId:privilege"
+	calls   []string        // every "actorId:privilege" this mock was asked to check, in order
 }
 
 func newMockAuthSvc() *mockAuthSvc {
@@ -80,6 +81,7 @@ func newMockAuthSvc() *mockAuthSvc {
 
 func (m *mockAuthSvc) CheckPrivilege(_ context.Context, actorID, privilege, _ string) (*port.AuthResult, error) {
 	key := actorID + ":" + privilege
+	m.calls = append(m.calls, key)
 	allowed := m.results[key]
 	return &port.AuthResult{Allowed: allowed, Reason: "mock"}, nil
 }
@@ -93,6 +95,8 @@ func testDiscoverySvc() *DiscoveryService {
 			{App: "Calc", Name: "edit", Ext: "xlsx", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
 			{App: "Impress", Name: "edit", Ext: "pptx", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
 			{App: "Writer", Name: "edit", Ext: "odt", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
+			// Matches real Collabora discovery for PDF — only "view_comment", no edit/view.
+			{App: "application/pdf", Name: "view_comment", Ext: "pdf", URLSrc: "http://collabora:9980/browser/dist/cool.html?"},
 		},
 	}
 	client := &mockDiscoveryClientForToken{data: data}
@@ -193,6 +197,54 @@ func TestIssueToken_Success_ReadOnly(t *testing.T) {
 	}
 	if stored.Permissions != "read" {
 		t.Errorf("expected read-only permissions, got %q", stored.Permissions)
+	}
+}
+
+// PDF annotation-then-save corrupts the document (Collabora's own background-save
+// Kit process disconnects mid-save). Until Collabora fixes this upstream, PDF
+// tokens are always read-only, regardless of the actor's actual write
+// privilege, so Collabora never offers the annotate/save path that triggers
+// the bug.
+func TestIssueToken_PDF_AlwaysReadOnly_EvenWithWritePrivilege(t *testing.T) {
+	docID := uuid.New().String()
+	actorID := uuid.New().String()
+
+	fileSvc := newMockFileSvcForToken()
+	fileSvc.docs[docID] = &model.Document{
+		ID:                    docID,
+		AuthorizationPolicyID: uuid.New().String(),
+		MimeType:              model.MimeTypePDF,
+	}
+
+	authSvc := newMockAuthSvc()
+	authSvc.results[actorID+":read"] = true
+	authSvc.results[actorID+":update-content"] = true // actor DOES have write privilege
+
+	tokenRepo := newMockTokenRepo()
+	svc := NewTokenService(
+		tokenRepo, fileSvc, authSvc,
+		testDiscoverySvc(),
+		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
+	)
+
+	result, err := svc.IssueToken(context.Background(), actorID, "Test User", docID, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stored := tokenRepo.tokens[result.AccessToken]
+	if stored == nil {
+		t.Fatal("token not stored")
+	}
+	if stored.Permissions != "read" {
+		t.Errorf("expected PDF token to be forced read-only despite write privilege, got %q", stored.Permissions)
+	}
+
+	updateContentKey := actorID + ":update-content"
+	for _, call := range authSvc.calls {
+		if call == updateContentKey {
+			t.Errorf("expected PDF issuance to skip the update-content privilege check entirely, but it was called")
+		}
 	}
 }
 
