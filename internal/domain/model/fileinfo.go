@@ -26,4 +26,9 @@ type FileInfo struct {
 	LastModifiedTime        string `json:"LastModifiedTime,omitempty"`
 	PostMessageOrigin       string `json:"PostMessageOrigin,omitempty"`
 	ReadOnly                bool   `json:"ReadOnly,omitempty"`
+	// DownloadAsPostMessage asks Collabora to route Download-As through a
+	// Download_As postMessage to the host frame instead of running the export
+	// itself. Aimed at Download As -> PDF, which is the action observed to fail;
+	// Print is unaffected and works normally.
+	DownloadAsPostMessage bool `json:"DownloadAsPostMessage"`
 }

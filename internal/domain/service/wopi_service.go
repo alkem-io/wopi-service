@@ -107,6 +107,10 @@ func WithRenameEnabled(enabled bool) WOPIServiceOption {
 //     reflects the token's permissions without inferring from defaults.
 //   - `PostMessageOrigin` enables Collabora to post save/connection
 //     status messages back to the embedding host frame.
+//   - `DownloadAsPostMessage` is always true: Collabora's Download As -> PDF
+//     has been observed to take down the handling Kit process, ending the
+//     editing session. Print is not affected. Deferring the request to the
+//     host frame lets it decide rather than Collabora exporting unconditionally.
 func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToken) (*model.FileInfo, error) {
 	doc, err := s.fileSvc.FindByID(ctx, token.FileID)
 	if err != nil {
@@ -144,6 +148,7 @@ func (s *WOPIService) CheckFileInfo(ctx context.Context, token *model.AccessToke
 		ReadOnly:                !canWrite,
 		LastModifiedTime:        lastModified,
 		PostMessageOrigin:       s.postMessageOrigin,
+		DownloadAsPostMessage:   true,
 	}, nil
 }
 

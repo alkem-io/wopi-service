@@ -158,6 +158,23 @@ func TestCheckFileInfo_Success(t *testing.T) {
 	}
 }
 
+func TestCheckFileInfo_DownloadAsPostMessage_AlwaysTrue(t *testing.T) {
+	docID := uuid.New().String()
+	fileSvc := newMockFileService()
+	fileSvc.docs[docID] = &model.Document{ID: docID, DisplayName: "report.docx"}
+
+	svc := NewWOPIService(fileSvc, newMockLockRepo(), "https://wopi.example.com", "https://wopi.example.com", 4*time.Hour, zap.NewNop())
+	token := makeToken(docID, "read,write")
+
+	info, err := svc.CheckFileInfo(context.Background(), token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !info.DownloadAsPostMessage {
+		t.Error("expected DownloadAsPostMessage=true so the client can intercept export requests")
+	}
+}
+
 func TestCheckFileInfo_ReadOnly(t *testing.T) {
 	docID := uuid.New().String()
 	fileSvc := newMockFileService()
