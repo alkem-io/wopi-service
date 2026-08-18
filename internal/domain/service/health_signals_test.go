@@ -125,7 +125,7 @@ func TestIssueToken_WrapsDocumentLookupError(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	_, err := svc.IssueToken(context.Background(), "actor-1", "Actor", "doc-1")
+	_, err := svc.IssueToken(context.Background(), "actor-1", "Actor", "doc-1", "")
 	if !errors.Is(err, ErrDocumentLookup) {
 		t.Fatalf("expected ErrDocumentLookup, got %v", err)
 	}
@@ -151,7 +151,7 @@ func TestIssueToken_WrapsTokenPersistError(t *testing.T) {
 		"secret", "https://wopi.example.com", "https://wopi.example.com", zap.NewNop(),
 	)
 
-	_, err := svc.IssueToken(context.Background(), actorID, "Actor", docID)
+	_, err := svc.IssueToken(context.Background(), actorID, "Actor", docID, "")
 	if !errors.Is(err, ErrTokenPersist) {
 		t.Fatalf("expected ErrTokenPersist, got %v", err)
 	}
