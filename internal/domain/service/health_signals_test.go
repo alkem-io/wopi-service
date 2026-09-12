@@ -44,6 +44,10 @@ func (m *failFileService) WriteFile(_ context.Context, _ string, content io.Read
 	return &port.FileWriteResult{ExternalID: m.writeOKID}, nil
 }
 func (m *failFileService) FileExists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (m *failFileService) CreatePreviewFile(_ context.Context, _ string, _ io.Reader) (string, error) {
+	return "", nil
+}
+func (m *failFileService) DeletePreviewFile(_ context.Context, _ string) error { return nil }
 
 type failLockRepo struct {
 	findErr error

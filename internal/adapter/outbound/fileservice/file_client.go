@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"strings"
@@ -53,6 +54,7 @@ type metaResponse struct {
 	CreatedBy       *string   `json:"createdBy,omitempty"`
 	AuthorizationID string    `json:"authorizationId"`
 	UpdatedDate     time.Time `json:"updatedDate"`
+	StorageBucketID string    `json:"storageBucketId"`
 }
 
 // FindByID retrieves document metadata from file-service.
@@ -95,6 +97,7 @@ func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Do
 		AuthorizationPolicyID: meta.AuthorizationID,
 		CreatedBy:             createdBy,
 		UpdatedAt:             meta.UpdatedDate,
+		StorageBucketID:       meta.StorageBucketID,
 	}, nil
 }
 
@@ -167,4 +170,72 @@ func (c *FileClient) FileExists(ctx context.Context, documentID string) (bool, e
 	_ = resp.Body.Close()
 
 	return resp.StatusCode == http.StatusOK, nil
+}
+
+// CreatePreviewFile streams content into a NEW private file in
+// storageBucketID (skipDedup=true, no authorizationId) without buffering it.
+func (c *FileClient) CreatePreviewFile(ctx context.Context, storageBucketID string, content io.Reader) (string, error) {
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		err := mw.WriteField("storageBucketId", storageBucketID)
+		if err == nil {
+			err = mw.WriteField("skipDedup", "true")
+		}
+		if err == nil {
+			err = mw.WriteField("displayName", "collabora-preview.png")
+		}
+		if err == nil {
+			var part io.Writer
+			part, err = mw.CreateFormFile("file", "collabora-preview.png")
+			if err == nil {
+				_, err = io.Copy(part, content)
+			}
+		}
+		if err == nil {
+			err = mw.Close()
+		}
+		_ = pw.CloseWithError(err)
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/internal/file", pr)
+	if err != nil {
+		return "", fmt.Errorf("create preview-file request: %w", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("file-service create preview: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("file-service create preview status %d", resp.StatusCode)
+	}
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		return "", fmt.Errorf("decode create preview response: %w", err)
+	}
+	return created.ID, nil
+}
+
+// DeletePreviewFile best-effort deletes a superseded private preview file.
+// A 404 (already gone) is not an error.
+func (c *FileClient) DeletePreviewFile(ctx context.Context, fileID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/internal/file/"+fileID, nil)
+	if err != nil {
+		return fmt.Errorf("create delete-preview request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("file-service delete preview: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("file-service delete preview status %d", resp.StatusCode)
+	}
+	return nil
 }

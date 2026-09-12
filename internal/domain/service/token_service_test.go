@@ -70,6 +70,12 @@ func (m *mockFileSvcForToken) FileExists(_ context.Context, _ string) (bool, err
 	return false, nil
 }
 
+func (m *mockFileSvcForToken) CreatePreviewFile(_ context.Context, _ string, _ io.Reader) (string, error) {
+	return "", nil
+}
+
+func (m *mockFileSvcForToken) DeletePreviewFile(_ context.Context, _ string) error { return nil }
+
 type mockAuthSvc struct {
 	results map[string]bool // key: "actorId:privilege"
 	calls   []string        // every "actorId:privilege" this mock was asked to check, in order

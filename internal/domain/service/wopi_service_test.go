@@ -57,6 +57,12 @@ func (m *mockFileService) FileExists(_ context.Context, documentID string) (bool
 	return ok, nil
 }
 
+func (m *mockFileService) CreatePreviewFile(_ context.Context, _ string, _ io.Reader) (string, error) {
+	return "", nil
+}
+
+func (m *mockFileService) DeletePreviewFile(_ context.Context, _ string) error { return nil }
+
 // --- In-memory lock repo mock ---
 
 type mockLockRepo struct {
@@ -587,6 +593,12 @@ func (e *errorFileService) WriteFile(_ context.Context, _ string, _ io.Reader) (
 func (e *errorFileService) FileExists(_ context.Context, _ string) (bool, error) {
 	return false, e.err
 }
+
+func (e *errorFileService) CreatePreviewFile(_ context.Context, _ string, _ io.Reader) (string, error) {
+	return "", e.err
+}
+
+func (e *errorFileService) DeletePreviewFile(_ context.Context, _ string) error { return e.err }
 
 type errorLockRepo struct {
 	err error

@@ -31,6 +31,10 @@ func (s *stubFileService) WriteFile(_ context.Context, _ string, _ io.Reader) (*
 func (s *stubFileService) FileExists(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
+func (s *stubFileService) CreatePreviewFile(_ context.Context, _ string, _ io.Reader) (string, error) {
+	return "", nil
+}
+func (s *stubFileService) DeletePreviewFile(_ context.Context, _ string) error { return nil }
 
 // in-memory token repo for middleware tests
 type memTokenRepo struct {
