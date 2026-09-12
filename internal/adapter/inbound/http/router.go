@@ -14,6 +14,7 @@ type RouterDeps struct {
 	DiscoverySvc     *service.DiscoveryService
 	TokenHandler     *TokenHandler
 	WOPIHandler      *WOPIHandler
+	PreviewHandler   *PreviewHandler
 	HealthHandler    *HealthHandler
 	DiscoveryHandler *DiscoveryHandler
 	ContributionWnd  *service.ContributionWindow
@@ -53,6 +54,12 @@ func NewRouter(deps RouterDeps) chi.Router {
 	// the file is currently open for editing (not document-content-sensitive), and
 	// the guard cares solely about that fact, not who is asking.
 	r.With(ActorHeaderMiddleware).Get("/wopi/files/{fileID}/lock-status", deps.WOPIHandler.LockStatus)
+
+	// Collabora document preview — mounted ONLY under the protected
+	// /wopi-private root (never public /wopi, never the WOPI access-token
+	// middleware group). The gateway strips caller-supplied actor headers
+	// and rewrites the external /api/private/wopi/... contract here.
+	r.With(ActorHeaderMiddleware).Get("/wopi-private/files/{fileID}/preview", deps.PreviewHandler.ServeHTTP)
 
 	// WOPI protocol endpoints — access token auth + proof validation
 	r.Group(func(sub chi.Router) {

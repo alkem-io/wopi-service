@@ -98,6 +98,7 @@ func main() {
 		DiscoverySvc:     services.discovery,
 		TokenHandler:     handlers.token,
 		WOPIHandler:      handlers.wopi,
+		PreviewHandler:   handlers.preview,
 		HealthHandler:    handlers.health,
 		DiscoveryHandler: handlers.discovery,
 		ContributionWnd:  services.contribution,
@@ -123,9 +124,11 @@ func main() {
 type adapters struct {
 	tokenRepo    *postgres.TokenRepository
 	lockRepo     *postgres.LockRepository
+	previewRepo  *postgres.PreviewCacheRepository
 	authSvc      port.AuthService
 	fileSvc      *fileservice.FileClient
 	discoveryCli *collabora.DiscoveryClient
+	thumbnailCli *collabora.ThumbnailClient
 	publisher    port.QueuePublisher
 }
 
@@ -133,6 +136,7 @@ type adapters struct {
 type services struct {
 	token        *service.TokenService
 	wopi         *service.WOPIService
+	preview      *service.PreviewService
 	discovery    *service.DiscoveryService
 	cleanup      *service.CleanupService
 	contribution *service.ContributionWindow
@@ -143,6 +147,7 @@ type services struct {
 type httpHandlers struct {
 	token     *wopihttp.TokenHandler
 	wopi      *wopihttp.WOPIHandler
+	preview   *wopihttp.PreviewHandler
 	health    *wopihttp.HealthHandler
 	discovery *wopihttp.DiscoveryHandler
 }
@@ -159,9 +164,11 @@ func createAdapters(pool *pgxpool.Pool, authSvc port.AuthService, cfg *config.Co
 	return adapters{
 		tokenRepo:    postgres.NewTokenRepository(pool),
 		lockRepo:     postgres.NewLockRepository(pool),
+		previewRepo:  postgres.NewPreviewCacheRepository(pool),
 		authSvc:      authSvc,
 		fileSvc:      fileservice.NewFileClient(cfg.FileService.URL),
 		discoveryCli: collabora.NewDiscoveryClient(cfg.CollaboraURL),
+		thumbnailCli: collabora.NewThumbnailClient(cfg.CollaboraURL),
 		publisher:    newPublisher(cfg, logger),
 	}
 }
@@ -190,6 +197,8 @@ func createServices(a adapters, cfg *config.Config, logger *zap.Logger) services
 		// rename event is dropped and an in-editor rename would silently no-op.
 		wopi: service.NewWOPIService(a.fileSvc, a.lockRepo, cfg.BaseURL, cfg.FrontendOrigin, cfg.MaxLockLifetime, logger,
 			service.WithRenameEnabled(cfg.RabbitMQ.IsConfigured())),
+		preview: service.NewPreviewService(a.fileSvc, a.authSvc, a.previewRepo, a.thumbnailCli,
+			cfg.PreviewQueueCapacity, logger),
 		discovery:    discoverySvc,
 		cleanup:      service.NewCleanupService(a.tokenRepo, a.lockRepo, logger),
 		contribution: service.NewContributionWindow(a.publisher, cfg.ContributionWindow, logger),
@@ -201,6 +210,7 @@ func createHandlers(s services, pool *pgxpool.Pool, nc *nats.Conn, logger *zap.L
 	return httpHandlers{
 		token:     wopihttp.NewTokenHandler(s.token, logger),
 		wopi:      wopihttp.NewWOPIHandler(s.wopi, s.contribution, s.publisher, logger),
+		preview:   wopihttp.NewPreviewHandler(s.preview, logger),
 		health:    wopihttp.NewHealthHandler(pool, nc, s.discovery, logger),
 		discovery: wopihttp.NewDiscoveryHandler(s.discovery, logger),
 	}
@@ -208,10 +218,13 @@ func createHandlers(s services, pool *pgxpool.Pool, nc *nats.Conn, logger *zap.L
 
 func newHTTPServer(port string, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:         ":" + port,
-		Handler:      handler,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		Addr:        ":" + port,
+		Handler:     handler,
+		ReadTimeout: 30 * time.Second,
+		// WriteTimeout is WOPI's one shared timeout source (see
+		// service.RenderTimeout, which admitted preview render jobs use
+		// instead of a preview-specific setting).
+		WriteTimeout: service.RenderTimeout,
 		IdleTimeout:  120 * time.Second,
 	}
 }
