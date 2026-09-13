@@ -64,7 +64,8 @@ func NewPreviewService(fileSvc port.FileService, authSvc port.AuthService, cache
 }
 
 // Resolve authorizes actorID against sourceID's CURRENT read policy before
-// any other outcome, including a 304.
+// any other outcome, including a 304. Keys use canonical src.ID, not the
+// caller's path spelling (sec-wopi-2: uuid.Parse accepts many spellings).
 func (s *PreviewService) Resolve(ctx context.Context, actorID, sourceID, ifNoneMatch string) (*PreviewResult, error) {
 	src, err := s.fileSvc.FindByID(ctx, sourceID)
 	if err != nil {
@@ -95,7 +96,7 @@ func (s *PreviewService) Resolve(ctx context.Context, actorID, sourceID, ifNoneM
 		return &PreviewResult{ETag: etag, NotModified: true}, nil
 	}
 
-	if entry, err := s.currentMapping(ctx, sourceID, src.UpdatedAt); err != nil {
+	if entry, err := s.currentMapping(ctx, src.ID, src.UpdatedAt); err != nil {
 		return nil, err
 	} else if entry != nil {
 		if body, ferr := s.fileSvc.ReadFile(ctx, entry.PreviewFileID); ferr == nil {
@@ -106,7 +107,7 @@ func (s *PreviewService) Resolve(ctx context.Context, actorID, sourceID, ifNoneM
 		// A 404'd preview file is a miss, repaired below — no separate branch.
 	}
 
-	entry, err := s.resolveMiss(ctx, sourceID, ext, src.UpdatedAt)
+	entry, err := s.resolveMiss(ctx, src.ID, ext, src.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

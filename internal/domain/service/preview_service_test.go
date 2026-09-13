@@ -38,6 +38,10 @@ type previewFakeFileService struct {
 	readEntered  map[string]chan struct{}
 	laggingDates map[string][]time.Time
 	findCalls    map[string]int
+	// spellingAliases mirrors file-service resolving a document ID with
+	// uuid.Parse: case-insensitive, and accepting hyphen-less, urn:uuid:
+	// and braced forms. Alternate spelling -> canonical document ID.
+	spellingAliases map[string]string
 }
 
 func newPreviewFakeFileService() *previewFakeFileService {
@@ -48,7 +52,26 @@ func newPreviewFakeFileService() *previewFakeFileService {
 		readErr:     make(map[string]error),
 		readGates:   make(map[string]chan struct{}),
 		readEntered: make(map[string]chan struct{}),
+
+		spellingAliases: make(map[string]string),
 	}
+}
+
+// addSpelling registers an alternate path spelling that file-service resolves
+// to the same canonical document, as uuid.Parse does in production.
+func (f *previewFakeFileService) addSpelling(alias, canonical string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.spellingAliases[alias] = canonical
+}
+
+// canonicalise resolves an alternate spelling exactly as file-service does on
+// EVERY endpoint, not just metadata. Callers must already hold f.mu.
+func (f *previewFakeFileService) canonicalise(id string) string {
+	if canonical, aliased := f.spellingAliases[id]; aliased {
+		return canonical
+	}
+	return id
 }
 
 // setLaggingDates makes FindByID(id) return dates[n-1] on its n-th call
@@ -92,6 +115,7 @@ func (f *previewFakeFileService) FindByID(_ context.Context, id string) (*model.
 	if f.findErr != nil {
 		return nil, f.findErr
 	}
+	id = f.canonicalise(id)
 	doc, ok := f.docs[id]
 	if !ok {
 		return nil, nil
@@ -123,6 +147,7 @@ func (f *previewFakeFileService) ReadFile(_ context.Context, id string) (io.Read
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	id = f.canonicalise(id)
 	if err, ok := f.readErr[id]; ok {
 		return nil, err
 	}
@@ -140,7 +165,7 @@ func (f *previewFakeFileService) WriteFile(_ context.Context, _ string, _ io.Rea
 func (f *previewFakeFileService) FileExists(_ context.Context, id string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	_, ok := f.files[id]
+	_, ok := f.files[f.canonicalise(id)]
 	return ok, nil
 }
 
@@ -937,4 +962,68 @@ func TestPreviewService_CacheHitBypassesAdmissionEvenWhenFull(t *testing.T) {
 		t.Errorf("body = %q", body)
 	}
 	close(gate)
+}
+
+// TestPreviewService_ResolveKeysOnCanonicalIDNotPathSpelling is the regression
+// guard for security finding sec-wopi-2. file-service resolves a document ID
+// with uuid.Parse, which is case-insensitive and also accepts hyphen-less,
+// urn:uuid: and braced forms — so one document has many valid path spellings.
+// Keying the cache, the single-flight group or the mapping row on the caller's
+// raw path parameter lets any reader defeat the cache entirely: N spellings
+// produce N renders, N preview files and N rows against a single-replica,
+// CPU-limited Collabora that also serves live editing.
+func TestPreviewService_ResolveKeysOnCanonicalIDNotPathSpelling(t *testing.T) {
+	const canonical = "01a09a51-e950-7411-a327-48ebc00debd7"
+	spellings := []string{
+		canonical,
+		"01A09A51-E950-7411-A327-48EBC00DEBD7",          // upper case
+		"01a09a51e9507411a32748ebc00debd7",              // hyphen-less
+		"urn:uuid:01a09a51-e950-7411-a327-48ebc00debd7", // urn form
+		"{01a09a51-e950-7411-a327-48ebc00debd7}",        // braced
+	}
+
+	files := newPreviewFakeFileService()
+	now := time.Now().UTC()
+	files.docs[canonical] = &model.Document{
+		ID: canonical, AuthorizationPolicyID: "pol",
+		MimeType: "application/vnd.oasis.opendocument.text", Size: 1,
+		StorageBucketID: "bucket", UpdatedAt: now,
+	}
+	files.files[canonical] = []byte("source bytes")
+	for _, s := range spellings[1:] {
+		files.addSpelling(s, canonical)
+	}
+
+	cache := newPreviewFakeCache()
+	renderer := &fakeRenderer{}
+	svc := NewPreviewService(files, newAuthorizedActor(), cache, renderer, 8, zap.NewNop())
+
+	for _, spelling := range spellings {
+		res, err := svc.Resolve(context.Background(), "actor", spelling, "")
+		if err != nil {
+			t.Fatalf("Resolve(%q) error = %v", spelling, err)
+		}
+		if res.Body != nil {
+			_ = res.Body.Close()
+		}
+	}
+
+	// One document, however it is spelled, is one render and one mapping row.
+	if got := atomic.LoadInt32(&renderer.calls); got != 1 {
+		t.Errorf("Collabora renders = %d across %d spellings of one document, want 1 "+
+			"(a cache keyed on the caller's path spelling makes every spelling miss)",
+			got, len(spellings))
+	}
+	cache.mu.Lock()
+	rows := make([]string, 0, len(cache.rows))
+	for k := range cache.rows {
+		rows = append(rows, k)
+	}
+	cache.mu.Unlock()
+	if len(rows) != 1 {
+		t.Errorf("document_preview_cache rows = %d %v, want exactly 1 keyed on %q",
+			len(rows), rows, canonical)
+	} else if rows[0] != canonical {
+		t.Errorf("cache row keyed on %q, want the canonical %q", rows[0], canonical)
+	}
 }
