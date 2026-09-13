@@ -18,6 +18,12 @@ import (
 // maxActiveRenders bounds concurrent Collabora conversions.
 const maxActiveRenders = 2
 
+// resolveMissMaxAttempts bounds resolveMiss's re-entry loop: a request that
+// keeps observing a source date newer than what just got committed re-enters
+// resolution against a freshly re-read source date, but only this many
+// times — never an unbounded spin against one frozen observation.
+const resolveMissMaxAttempts = 3
+
 // RenderTimeout bounds one admitted render job — WOPI's shared HTTP write
 // timeout, not a preview-specific setting. A var so tests can shorten it.
 var RenderTimeout = 60 * time.Second
@@ -124,9 +130,15 @@ func (s *PreviewService) currentMapping(ctx context.Context, sourceID string, cu
 }
 
 // resolveMiss collapses concurrent misses via single-flight (respecting ctx
-// unlike the shared job); a result older than observedDate re-enters resolution.
+// unlike the shared job). A result older than observedDate re-enters
+// resolution against a freshly re-read source date — not the frozen one —
+// for up to resolveMissMaxAttempts renders; once that bound is hit it
+// returns the freshest committed representation obtained rather than
+// spinning, which stays self-consistent (bytes always match their own
+// committed date) even if not the very latest source state.
 func (s *PreviewService) resolveMiss(ctx context.Context, sourceID, extension string, observedDate time.Time) (*model.PreviewCacheEntry, error) {
-	for {
+	var entry *model.PreviewCacheEntry
+	for attempt := 0; attempt < resolveMissMaxAttempts; attempt++ {
 		ch := s.flight.DoChan(sourceID, func() (interface{}, error) {
 			return s.renderAndSwap(sourceID, extension)
 		})
@@ -135,14 +147,28 @@ func (s *PreviewService) resolveMiss(ctx context.Context, sourceID, extension st
 			if res.Err != nil {
 				return nil, res.Err
 			}
-			entry := res.Val.(*model.PreviewCacheEntry)
+			entry = res.Val.(*model.PreviewCacheEntry)
 			if !entry.SourceUpdatedDate.Before(observedDate) {
 				return entry, nil
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
+		if attempt+1 >= resolveMissMaxAttempts {
+			s.logger.Warn("resolveMiss exhausted its re-entry bound; serving the freshest committed preview instead of the latest source state",
+				zap.String("sourceID", sourceID), zap.Int("attempts", resolveMissMaxAttempts))
+			break
+		}
+		src, err := s.fileSvc.FindByID(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("re-observe source: %w", err)
+		}
+		if src == nil {
+			return nil, ErrDocumentNotFound
+		}
+		observedDate = src.UpdatedAt
 	}
+	return entry, nil
 }
 
 // renderAndSwap is the single-flight leader for one source miss: admit,

@@ -25,14 +25,16 @@ const previewTestMIME = "application/vnd.openxmlformats-officedocument.wordproce
 // It stores both source documents/content and created preview files in the
 // same maps, mirroring how file-service holds both in one bucket.
 type previewFakeFileService struct {
-	mu        sync.Mutex
-	docs      map[string]*model.Document
-	files     map[string][]byte
-	deleted   map[string]bool
-	nextID    int32
-	findErr   error
-	createErr error
-	readErr   map[string]error
+	mu           sync.Mutex
+	docs         map[string]*model.Document
+	files        map[string][]byte
+	deleted      map[string]bool
+	nextID       int32
+	findErr      error
+	createErr    error
+	readErr      map[string]error
+	laggingDates map[string][]time.Time
+	findCalls    map[string]int
 }
 
 func newPreviewFakeFileService() *previewFakeFileService {
@@ -42,6 +44,26 @@ func newPreviewFakeFileService() *previewFakeFileService {
 		deleted: make(map[string]bool),
 		readErr: make(map[string]error),
 	}
+}
+
+// setLaggingDates makes FindByID(id) return dates[n-1] on its n-th call
+// (clamped to the last entry once exhausted), simulating a load-balanced
+// file-service replica set whose metadata reads are not read-your-writes
+// consistent.
+func (f *previewFakeFileService) setLaggingDates(id string, dates ...time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.laggingDates == nil {
+		f.laggingDates = make(map[string][]time.Time)
+		f.findCalls = make(map[string]int)
+	}
+	f.laggingDates[id] = dates
+}
+
+func (f *previewFakeFileService) findCallCount(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.findCalls[id]
 }
 
 func (f *previewFakeFileService) FindByID(_ context.Context, id string) (*model.Document, error) {
@@ -55,6 +77,14 @@ func (f *previewFakeFileService) FindByID(_ context.Context, id string) (*model.
 		return nil, nil
 	}
 	cp := *doc
+	if seq, ok := f.laggingDates[id]; ok {
+		idx := f.findCalls[id]
+		f.findCalls[id]++
+		if idx >= len(seq) {
+			idx = len(seq) - 1
+		}
+		cp.UpdatedAt = seq[idx]
+	}
 	return &cp, nil
 }
 
@@ -366,6 +396,42 @@ func TestPreviewService_Resolve_StaleDateRendersAgainAndSwapsMapping(t *testing.
 	}
 	if !files.deleted[firstEntry.PreviewFileID] {
 		t.Error("the superseded preview file should be best-effort deleted")
+	}
+}
+
+// TestPreviewService_ResolveMissBoundsReEntryAgainstALaggingReplicaObservation
+// proves resolveMiss cannot spin unboundedly when a load-balanced
+// file-service replica set answers metadata reads inconsistently: Resolve's
+// own top-level read observes a newer date, but every later read (the
+// render's re-lookup, and every re-observation inside resolveMiss) lands on
+// a replica still reporting an older one. The render and file-service call
+// counts must stay small and bounded, never grow into an unbounded spin.
+func TestPreviewService_ResolveMissBoundsReEntryAgainstALaggingReplicaObservation(t *testing.T) {
+	files := newPreviewFakeFileService()
+	t1 := time.Now().UTC().Truncate(time.Second)
+	t2 := t1.Add(time.Minute)
+	files.docs["src"] = &model.Document{ID: "src", AuthorizationPolicyID: "pol", MimeType: previewTestMIME, Size: 1, UpdatedAt: t2, StorageBucketID: "bucket"}
+	files.files["src"] = []byte("content")
+	// Call 1 (Resolve's own top-level read) observes t2; every call after
+	// that lands on a lagging replica still reporting t1.
+	files.setLaggingDates("src", t2, t1, t1, t1, t1, t1, t1, t1, t1, t1)
+	renderer := &fakeRenderer{}
+	svc := NewPreviewService(files, newAuthorizedActor(), newPreviewFakeCache(), renderer, 8, zap.NewNop())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	res, err := svc.Resolve(ctx, "actor", "src", "")
+	if err != nil {
+		t.Fatalf("Resolve error: %v", err)
+	}
+	if res.Body == nil {
+		t.Fatal("expected a preview body despite the lagging replica")
+	}
+	if got := atomic.LoadInt32(&renderer.calls); got > resolveMissMaxAttempts {
+		t.Errorf("renderer calls = %d, want at most %d (bounded re-entry, not an unbounded spin)", got, resolveMissMaxAttempts)
+	}
+	if got := files.findCallCount("src"); got > resolveMissMaxAttempts+2 {
+		t.Errorf("file-service metadata reads = %d, want a small bounded number, not an unbounded spin", got)
 	}
 }
 
