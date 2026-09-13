@@ -18,10 +18,8 @@ import (
 // maxActiveRenders bounds concurrent Collabora conversions.
 const maxActiveRenders = 2
 
-// resolveMissMaxAttempts bounds resolveMiss's re-entry loop: a request that
-// keeps observing a source date newer than what just got committed re-enters
-// resolution against a freshly re-read source date, but only this many
-// times — never an unbounded spin against one frozen observation.
+// resolveMissMaxAttempts bounds resolveMiss's re-entry loop — never an
+// unbounded spin against one frozen source-date observation.
 const resolveMissMaxAttempts = 3
 
 // RenderTimeout bounds one admitted render job — WOPI's shared HTTP write
@@ -129,16 +127,10 @@ func (s *PreviewService) currentMapping(ctx context.Context, sourceID string, cu
 	return nil, nil
 }
 
-// resolveMiss collapses concurrent misses via single-flight (respecting ctx
-// unlike the shared job). A result older than observedDate re-enters
-// resolution against a freshly re-read source date — not the frozen one —
-// for up to resolveMissMaxAttempts renders; once that bound is hit it
-// returns the freshest committed representation obtained rather than
-// spinning, which stays self-consistent (bytes always match their own
-// committed date) even if not the very latest source state.
+// resolveMiss collapses concurrent misses via single-flight; a stale result
+// re-enters against a freshly re-read date, bounded by resolveMissMaxAttempts.
 func (s *PreviewService) resolveMiss(ctx context.Context, sourceID, extension string, observedDate time.Time) (*model.PreviewCacheEntry, error) {
-	var entry *model.PreviewCacheEntry
-	for attempt := 0; attempt < resolveMissMaxAttempts; attempt++ {
+	for attempt := 1; ; attempt++ {
 		ch := s.flight.DoChan(sourceID, func() (interface{}, error) {
 			return s.renderAndSwap(sourceID, extension)
 		})
@@ -147,17 +139,12 @@ func (s *PreviewService) resolveMiss(ctx context.Context, sourceID, extension st
 			if res.Err != nil {
 				return nil, res.Err
 			}
-			entry = res.Val.(*model.PreviewCacheEntry)
-			if !entry.SourceUpdatedDate.Before(observedDate) {
+			entry := res.Val.(*model.PreviewCacheEntry)
+			if !entry.SourceUpdatedDate.Before(observedDate) || attempt >= resolveMissMaxAttempts {
 				return entry, nil
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		}
-		if attempt+1 >= resolveMissMaxAttempts {
-			s.logger.Warn("resolveMiss exhausted its re-entry bound; serving the freshest committed preview instead of the latest source state",
-				zap.String("sourceID", sourceID), zap.Int("attempts", resolveMissMaxAttempts))
-			break
 		}
 		src, err := s.fileSvc.FindByID(ctx, sourceID)
 		if err != nil {
@@ -168,7 +155,6 @@ func (s *PreviewService) resolveMiss(ctx context.Context, sourceID, extension st
 		}
 		observedDate = src.UpdatedAt
 	}
-	return entry, nil
 }
 
 // renderAndSwap is the single-flight leader for one source miss: admit,
@@ -223,14 +209,11 @@ func (s *PreviewService) renderAndSwap(sourceID, extension string) (*model.Previ
 }
 
 // commitMapping atomically swaps the mapping to the newly rendered preview.
-// It deliberately never deletes the file it superseded: another request may
-// already hold that entry and be about to stream it (Resolve reads the
-// mapping and its file as two separate steps), so an immediate delete here
-// races a concurrent reader into a 404 or a truncated stream. The contract
-// (private-preview-file.md) already treats a superseded, never-deleted
-// preview file as accepted bucket-lifecycle garbage — the same class it
-// accepts for a best-effort delete that fails or is skipped — so leaving it
-// unmapped is within spec, not a new problem.
+// It never deletes the file it superseded: a concurrent reader may already
+// hold that row and be mid-stream (Resolve reads the row and its file as
+// two steps), so deleting here would race it into a 404 or a truncated
+// read — the same accepted bucket-lifecycle garbage private-preview-file.md
+// already tolerates for a best-effort delete that fails or is skipped.
 func (s *PreviewService) commitMapping(ctx context.Context, sourceID, previewID string, renderedDate time.Time) (*model.PreviewCacheEntry, error) {
 	entry := model.PreviewCacheEntry{SourceFileID: sourceID, PreviewFileID: previewID, SourceUpdatedDate: renderedDate}
 	if err := s.cache.Upsert(ctx, entry); err != nil {
