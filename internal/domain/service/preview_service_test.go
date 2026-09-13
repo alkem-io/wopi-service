@@ -33,16 +33,20 @@ type previewFakeFileService struct {
 	findErr      error
 	createErr    error
 	readErr      map[string]error
+	readGates    map[string]chan struct{}
+	readEntered  map[string]chan struct{}
 	laggingDates map[string][]time.Time
 	findCalls    map[string]int
 }
 
 func newPreviewFakeFileService() *previewFakeFileService {
 	return &previewFakeFileService{
-		docs:    make(map[string]*model.Document),
-		files:   make(map[string][]byte),
-		deleted: make(map[string]bool),
-		readErr: make(map[string]error),
+		docs:        make(map[string]*model.Document),
+		files:       make(map[string][]byte),
+		deleted:     make(map[string]bool),
+		readErr:     make(map[string]error),
+		readGates:   make(map[string]chan struct{}),
+		readEntered: make(map[string]chan struct{}),
 	}
 }
 
@@ -64,6 +68,21 @@ func (f *previewFakeFileService) findCallCount(id string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.findCalls[id]
+}
+
+// armReadGate makes the NEXT ReadFile(id) call park after it has been
+// entered (signaled on the returned channel) but before it looks up the
+// file's bytes, until release is called — deterministically reproducing a
+// concurrent supersede landing while that read is still in flight over the
+// network, with no sleeps.
+func (f *previewFakeFileService) armReadGate(id string) (entered <-chan struct{}, release func()) {
+	enteredCh := make(chan struct{})
+	gate := make(chan struct{})
+	f.mu.Lock()
+	f.readGates[id] = gate
+	f.readEntered[id] = enteredCh
+	f.mu.Unlock()
+	return enteredCh, func() { close(gate) }
 }
 
 func (f *previewFakeFileService) FindByID(_ context.Context, id string) (*model.Document, error) {
@@ -89,6 +108,18 @@ func (f *previewFakeFileService) FindByID(_ context.Context, id string) (*model.
 }
 
 func (f *previewFakeFileService) ReadFile(_ context.Context, id string) (io.ReadCloser, error) {
+	f.mu.Lock()
+	gate, entered := f.readGates[id], f.readEntered[id]
+	delete(f.readGates, id)
+	delete(f.readEntered, id)
+	f.mu.Unlock()
+	if entered != nil {
+		close(entered)
+	}
+	if gate != nil {
+		<-gate
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err, ok := f.readErr[id]; ok {
@@ -394,8 +425,82 @@ func TestPreviewService_Resolve_StaleDateRendersAgainAndSwapsMapping(t *testing.
 	if secondEntry.PreviewFileID == firstEntry.PreviewFileID {
 		t.Error("a re-render must create a NEW preview file, never update the old one in place")
 	}
-	if !files.deleted[firstEntry.PreviewFileID] {
-		t.Error("the superseded preview file should be best-effort deleted")
+	// The superseded file is deliberately left alone on the request path: a
+	// concurrent reader may still be resolving/streaming it (see
+	// TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteConcurrentSwap),
+	// and the contract already treats an undeleted superseded file as
+	// accepted bucket-lifecycle garbage.
+	if files.deleted[firstEntry.PreviewFileID] {
+		t.Error("the superseded preview file must not be deleted from the request path")
+	}
+	if _, err := files.ReadFile(context.Background(), firstEntry.PreviewFileID); err != nil {
+		t.Errorf("superseded preview file should still be readable, got: %v", err)
+	}
+}
+
+// TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteConcurrentSwap
+// proves the invariant from contracts/private-preview-file.md: a reader that
+// has already resolved sourceID's mapping to one preview fileID/date still
+// streams exactly that row's bytes even though its own file-service read is
+// still in flight when a concurrent request fully re-renders and swaps the
+// mapping to a new preview fileID. Gated on channels, not sleeps.
+func TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteConcurrentSwap(t *testing.T) {
+	files := newPreviewFakeFileService()
+	t1 := time.Now().UTC().Truncate(time.Second)
+	files.docs["src"] = &model.Document{ID: "src", AuthorizationPolicyID: "pol", MimeType: previewTestMIME, Size: 1, UpdatedAt: t1, StorageBucketID: "bucket"}
+	files.files["src"] = []byte("v1")
+	cache := newPreviewFakeCache()
+	renderer := &fakeRenderer{}
+	svc := NewPreviewService(files, newAuthorizedActor(), cache, renderer, 8, zap.NewNop())
+
+	// Warm the cache with an ordinary cold render committing preview-1@t1.
+	if _, err := svc.Resolve(context.Background(), "actor", "src", ""); err != nil {
+		t.Fatalf("warm-up Resolve error: %v", err)
+	}
+	firstEntry, _ := cache.FindBySourceID(context.Background(), "src")
+
+	entered, release := files.armReadGate(firstEntry.PreviewFileID)
+
+	type outcome struct {
+		res *PreviewResult
+		err error
+	}
+	resA := make(chan outcome, 1)
+	go func() {
+		r, err := svc.Resolve(context.Background(), "actor", "src", "")
+		resA <- outcome{r, err}
+	}()
+
+	<-entered // A resolved the mapping row and is mid file-service read
+
+	// A concurrent save fully re-renders and swaps the mapping to a brand
+	// new preview file while A is still parked above.
+	t2 := t1.Add(time.Minute)
+	files.setUpdatedAt("src", t2)
+	files.files["src"] = []byte("v2")
+	if _, err := svc.Resolve(context.Background(), "actor", "src", ""); err != nil {
+		t.Fatalf("concurrent re-render Resolve error: %v", err)
+	}
+	secondEntry, _ := cache.FindBySourceID(context.Background(), "src")
+	if secondEntry.PreviewFileID == firstEntry.PreviewFileID {
+		t.Fatal("setup error: the mapping did not actually swap")
+	}
+
+	release() // let A's blocked read proceed
+
+	oa := <-resA
+	if oa.err != nil {
+		t.Fatalf("A (holding the original mapping row) error: %v", oa.err)
+	}
+	body, err := io.ReadAll(oa.res.Body)
+	if err != nil {
+		t.Fatalf("A body read error: %v", err)
+	}
+	if string(body) != "PNG-1" {
+		t.Errorf("A body = %q, want PNG-1 (exactly the bytes committed with its own resolved row)", body)
+	}
+	if oa.res.ETag != etagFor(t1) {
+		t.Errorf("A ETag = %q, want %q (its own row's date, never the swapped-in one)", oa.res.ETag, etagFor(t1))
 	}
 }
 

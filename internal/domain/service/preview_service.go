@@ -219,22 +219,22 @@ func (s *PreviewService) renderAndSwap(sourceID, extension string) (*model.Previ
 	if err != nil {
 		return nil, fmt.Errorf("%w: store preview: %w", ErrRenderFailed, err)
 	}
-	return s.commitAndSupersede(ctx, sourceID, previewID, src.UpdatedAt)
+	return s.commitMapping(ctx, sourceID, previewID, src.UpdatedAt)
 }
 
-// commitAndSupersede swaps the mapping atomically, then best-effort
-// deletes the file it superseded — a failed delete is not an error.
-func (s *PreviewService) commitAndSupersede(ctx context.Context, sourceID, previewID string, renderedDate time.Time) (*model.PreviewCacheEntry, error) {
-	previous, _ := s.cache.FindBySourceID(ctx, sourceID)
+// commitMapping atomically swaps the mapping to the newly rendered preview.
+// It deliberately never deletes the file it superseded: another request may
+// already hold that entry and be about to stream it (Resolve reads the
+// mapping and its file as two separate steps), so an immediate delete here
+// races a concurrent reader into a 404 or a truncated stream. The contract
+// (private-preview-file.md) already treats a superseded, never-deleted
+// preview file as accepted bucket-lifecycle garbage — the same class it
+// accepts for a best-effort delete that fails or is skipped — so leaving it
+// unmapped is within spec, not a new problem.
+func (s *PreviewService) commitMapping(ctx context.Context, sourceID, previewID string, renderedDate time.Time) (*model.PreviewCacheEntry, error) {
 	entry := model.PreviewCacheEntry{SourceFileID: sourceID, PreviewFileID: previewID, SourceUpdatedDate: renderedDate}
 	if err := s.cache.Upsert(ctx, entry); err != nil {
 		return nil, fmt.Errorf("%w: commit mapping: %w", ErrRenderFailed, err)
-	}
-	if previous != nil && previous.PreviewFileID != previewID {
-		if err := s.fileSvc.DeletePreviewFile(ctx, previous.PreviewFileID); err != nil {
-			s.logger.Warn("best-effort delete of superseded preview file failed",
-				zap.String("fileID", previous.PreviewFileID), zap.Error(err))
-		}
 	}
 	return &entry, nil
 }
