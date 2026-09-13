@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -127,7 +128,7 @@ func (f *previewFakeFileService) ReadFile(_ context.Context, id string) (io.Read
 	}
 	data, ok := f.files[id]
 	if !ok {
-		return nil, fmt.Errorf("not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", fs.ErrNotExist, id)
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
@@ -560,6 +561,34 @@ func TestPreviewService_Resolve_CachedFile404IsRepairedNotErrored(t *testing.T) 
 	}
 	if atomic.LoadInt32(&renderer.calls) != 1 {
 		t.Errorf("renderer calls = %d, want 1 (repair render)", renderer.calls)
+	}
+}
+
+// TestPreviewService_Resolve_CancelledCacheHitReadNeverRenders proves that a
+// cancelled (or otherwise transient) read of an already-cached, current
+// preview file is reported as an error, not silently repaired via a render —
+// distinguishing it from the genuine-404 case above.
+func TestPreviewService_Resolve_CancelledCacheHitReadNeverRenders(t *testing.T) {
+	files := newPreviewFakeFileService()
+	now := time.Now().UTC().Truncate(time.Second)
+	files.docs["src"] = &model.Document{ID: "src", AuthorizationPolicyID: "pol", MimeType: previewTestMIME, Size: 1, UpdatedAt: now, StorageBucketID: "bucket"}
+	files.files["src"] = []byte("content")
+	files.files["cached-preview"] = []byte("png")
+	files.readErr["cached-preview"] = context.Canceled
+	cache := newPreviewFakeCache()
+	_ = cache.Upsert(context.Background(), model.PreviewCacheEntry{SourceFileID: "src", PreviewFileID: "cached-preview", SourceUpdatedDate: now})
+	renderer := &fakeRenderer{}
+	svc := NewPreviewService(files, newAuthorizedActor(), cache, renderer, 8, zap.NewNop())
+
+	_, err := svc.Resolve(context.Background(), "actor", "src", "")
+	if err == nil {
+		t.Fatal("expected an error, not a repaired render")
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("error = %v, want anything but fs.ErrNotExist", err)
+	}
+	if got := atomic.LoadInt32(&renderer.calls); got != 0 {
+		t.Errorf("renderer calls = %d, want 0 (a cancelled cache-hit read must never trigger a render)", got)
 	}
 }
 

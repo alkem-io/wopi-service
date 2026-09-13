@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"time"
 
 	"go.uber.org/zap"
@@ -99,6 +100,8 @@ func (s *PreviewService) Resolve(ctx context.Context, actorID, sourceID, ifNoneM
 	} else if entry != nil {
 		if body, ferr := s.fileSvc.ReadFile(ctx, entry.PreviewFileID); ferr == nil {
 			return &PreviewResult{ETag: etag, Body: body}, nil
+		} else if !errors.Is(ferr, fs.ErrNotExist) {
+			return nil, fmt.Errorf("read cached preview: %w", ferr)
 		}
 		// A 404'd preview file is a miss, repaired below — no separate branch.
 	}

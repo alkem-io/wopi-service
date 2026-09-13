@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -116,7 +117,7 @@ func (c *FileClient) ReadFile(ctx context.Context, documentID string) (io.ReadCl
 
 	if resp.StatusCode == http.StatusNotFound {
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("file not found: %s", documentID)
+		return nil, fmt.Errorf("%w: %s", fs.ErrNotExist, documentID)
 	}
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()

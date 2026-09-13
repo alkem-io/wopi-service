@@ -3,8 +3,10 @@ package fileservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"strings"
@@ -158,8 +160,8 @@ func TestFileClient_ReadFile_NotFound(t *testing.T) {
 
 	client := NewFileClient(url)
 	_, err := client.ReadFile(context.Background(), "missing")
-	if err == nil {
-		t.Error("expected error for not found")
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("error = %v, want wrapped fs.ErrNotExist", err)
 	}
 }
 
