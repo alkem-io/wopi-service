@@ -59,6 +59,15 @@ func NewRouter(deps RouterDeps) chi.Router {
 	// /wopi-private root (never public /wopi, never the WOPI access-token
 	// middleware group). The gateway strips caller-supplied actor headers
 	// and rewrites the external /api/private/wopi/... contract here.
+	//
+	// This handler is safe only once the gateway's public /wopi route
+	// matches segment-safely (so it cannot lexically capture /wopi-private)
+	// and strips client-supplied actor headers before this service ever
+	// sees the request. Deploying an image carrying this handler ahead of
+	// that gateway change makes it reachable, unauthenticated, on the
+	// public router: do not bump the wopi-service image tag in any
+	// environment before confirming the live gateway route there already
+	// enforces both properties.
 	r.With(ActorHeaderMiddleware).Get("/wopi-private/files/{fileID}/preview", deps.PreviewHandler.ServeHTTP)
 
 	// WOPI protocol endpoints — access token auth + proof validation

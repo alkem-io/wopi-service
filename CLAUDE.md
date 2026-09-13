@@ -55,6 +55,11 @@ integration into the Alkemio platform.
 
 ## Development Workflow
 
+- `GET /wopi-private/files/{fileID}/preview` depends on the gateway's public
+  `/wopi` route being segment-safe and stripping client-supplied actor
+  headers. Never ship an image carrying this handler to an environment
+  before that gateway configuration is confirmed live there — see the
+  router comment above the route registration.
 - Install the pre-commit hook once per clone: `make install-hooks`. It
   runs `make openapi` whenever Go sources are staged and aborts the
   commit if `openapi.yaml` ends up stale — same check CI enforces.
