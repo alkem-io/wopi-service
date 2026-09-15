@@ -220,6 +220,12 @@ func (c *FileClient) CreatePreviewFile(ctx context.Context, storageBucketID stri
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		return "", fmt.Errorf("decode create preview response: %w", err)
 	}
+	// A 201 carrying no id would otherwise be committed as an empty
+	// preview_file_id: a mapping row that can never resolve, and which the
+	// cache-hit path keeps returning until the source's updatedDate changes.
+	if created.ID == "" {
+		return "", fmt.Errorf("file-service create preview returned no file id")
+	}
 	return created.ID, nil
 }
 

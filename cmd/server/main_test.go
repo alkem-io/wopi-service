@@ -11,6 +11,7 @@ import (
 
 	natsadapter "github.com/alkem-io/wopi-service/internal/adapter/outbound/nats"
 	"github.com/alkem-io/wopi-service/internal/config"
+	"github.com/alkem-io/wopi-service/internal/domain/service"
 )
 
 func TestConnectNATS_Success(t *testing.T) {
@@ -157,8 +158,10 @@ func TestNewHTTPServer(t *testing.T) {
 	if srv.ReadTimeout != 30*time.Second {
 		t.Errorf("ReadTimeout = %v", srv.ReadTimeout)
 	}
-	if srv.WriteTimeout != 60*time.Second {
-		t.Errorf("WriteTimeout = %v", srv.WriteTimeout)
+	// The render bound plus the slack a response needs to stream after it.
+	if srv.WriteTimeout != service.RenderTimeout+responseTransferHeadroom {
+		t.Errorf("WriteTimeout = %v, want %v", srv.WriteTimeout,
+			service.RenderTimeout+responseTransferHeadroom)
 	}
 	if srv.IdleTimeout != 120*time.Second {
 		t.Errorf("IdleTimeout = %v", srv.IdleTimeout)
@@ -172,5 +175,19 @@ func TestRunMigrations_InvalidDSN(t *testing.T) {
 	err := runMigrations("postgres://invalid:1/nonexistent?sslmode=disable&connect_timeout=1", zap.NewNop())
 	if err == nil {
 		t.Error("expected error for invalid DSN")
+	}
+}
+
+// The write deadline must leave room to stream a response AFTER a render that
+// consumed its whole deadline. Equal values leave zero transfer budget and can
+// truncate the PNG once a 200 and its ETag are already on the wire.
+func TestNewHTTPServer_WriteTimeoutExceedsRenderTimeout(t *testing.T) {
+	srv := newHTTPServer("8080", http.NewServeMux())
+	if srv.WriteTimeout <= service.RenderTimeout {
+		t.Errorf("WriteTimeout = %v, must exceed service.RenderTimeout = %v",
+			srv.WriteTimeout, service.RenderTimeout)
+	}
+	if got := srv.WriteTimeout - service.RenderTimeout; got != responseTransferHeadroom {
+		t.Errorf("transfer headroom = %v, want %v", got, responseTransferHeadroom)
 	}
 }

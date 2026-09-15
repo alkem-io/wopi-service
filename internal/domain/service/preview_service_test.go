@@ -200,8 +200,9 @@ func (f *previewFakeFileService) setUpdatedAt(sourceID string, t time.Time) {
 
 // previewFakeCache is an in-memory port.PreviewCacheRepository.
 type previewFakeCache struct {
-	mu   sync.Mutex
-	rows map[string]model.PreviewCacheEntry
+	mu        sync.Mutex
+	rows      map[string]model.PreviewCacheEntry
+	upsertErr error
 }
 
 func newPreviewFakeCache() *previewFakeCache {
@@ -222,6 +223,9 @@ func (c *previewFakeCache) FindBySourceID(_ context.Context, id string) (*model.
 func (c *previewFakeCache) Upsert(_ context.Context, entry model.PreviewCacheEntry) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.upsertErr != nil {
+		return c.upsertErr
+	}
 	c.rows[entry.SourceFileID] = entry
 	return nil
 }
@@ -962,6 +966,46 @@ func TestPreviewService_CacheHitBypassesAdmissionEvenWhenFull(t *testing.T) {
 		t.Errorf("body = %q", body)
 	}
 	close(gate)
+}
+
+// TestPreviewService_FailedCommitDeletesTheUncommittedPreview guards the
+// cleanup on the one path where deleting a preview file is race-free: the
+// mapping commit failed, so no row ever referenced previewID and no reader can
+// hold it. Without it each failed attempt orphans another private file.
+func TestPreviewService_FailedCommitDeletesTheUncommittedPreview(t *testing.T) {
+	files := newPreviewFakeFileService()
+	now := time.Now().UTC()
+	files.docs["src"] = &model.Document{
+		ID: "src", AuthorizationPolicyID: "pol", MimeType: previewTestMIME,
+		Size: 1, StorageBucketID: "bucket", UpdatedAt: now,
+	}
+	files.files["src"] = []byte("source bytes")
+
+	cache := newPreviewFakeCache()
+	cache.upsertErr = errors.New("commit exploded")
+
+	svc := NewPreviewService(files, newAuthorizedActor(), cache, &fakeRenderer{}, 8, zap.NewNop())
+
+	if _, err := svc.Resolve(context.Background(), "actor", "src", ""); !errors.Is(err, ErrRenderFailed) {
+		t.Fatalf("error = %v, want ErrRenderFailed", err)
+	}
+
+	files.mu.Lock()
+	created := len(files.deleted)
+	leaked := []string{}
+	for id := range files.files {
+		if id != "src" {
+			leaked = append(leaked, id)
+		}
+	}
+	files.mu.Unlock()
+
+	if created == 0 {
+		t.Error("no preview file was deleted; a failed commit orphaned it")
+	}
+	if len(leaked) != 0 {
+		t.Errorf("uncommitted preview files left behind: %v", leaked)
+	}
 }
 
 // TestPreviewService_ResolveKeysOnCanonicalIDNotPathSpelling is the regression

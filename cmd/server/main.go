@@ -216,15 +216,23 @@ func createHandlers(s services, pool *pgxpool.Pool, nc *nats.Conn, logger *zap.L
 	}
 }
 
+// responseTransferHeadroom is the slack the server's write deadline keeps
+// above the render bound so a response body can still be streamed after a
+// render that used its full deadline.
+const responseTransferHeadroom = 30 * time.Second
+
 func newHTTPServer(port string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:        ":" + port,
 		Handler:     handler,
 		ReadTimeout: 30 * time.Second,
-		// WriteTimeout is WOPI's one shared timeout source (see
-		// service.RenderTimeout, which admitted preview render jobs use
-		// instead of a preview-specific setting).
-		WriteTimeout: service.RenderTimeout,
+		// service.RenderTimeout is WOPI's one shared render bound; admitted
+		// preview jobs use it instead of a preview-specific setting. The
+		// server's write deadline must exceed it, not equal it: a render may
+		// consume its whole deadline and the PNG is only streamed afterwards,
+		// so an equal value leaves zero transfer budget and can truncate the
+		// body after a 200 and its ETag are already on the wire.
+		WriteTimeout: service.RenderTimeout + responseTransferHeadroom,
 		IdleTimeout:  120 * time.Second,
 	}
 }

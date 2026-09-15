@@ -359,3 +359,24 @@ func TestFileClient_DeletePreviewFile_ServerErrorIsError(t *testing.T) {
 		t.Error("expected error for server failure")
 	}
 }
+
+// A 201 whose body carries no id must not be reported as success: the empty
+// string would be committed as preview_file_id, producing a mapping row that
+// can never resolve and that the cache-hit path keeps returning.
+func TestFileClient_CreatePreviewFile_EmptyIDIsError(t *testing.T) {
+	for _, body := range []string{`{}`, `{"id":""}`} {
+		url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(body))
+		}))
+
+		client := NewFileClient(url)
+		id, err := client.CreatePreviewFile(context.Background(), "bucket", strings.NewReader("png"))
+		if err == nil {
+			t.Errorf("body %s: expected an error, got id %q", body, id)
+		}
+		if id != "" {
+			t.Errorf("body %s: expected empty id on error, got %q", body, id)
+		}
+	}
+}

@@ -218,9 +218,16 @@ func (s *PreviewService) renderAndSwap(sourceID, extension string) (*model.Previ
 // two steps), so deleting here would race it into a 404 or a truncated
 // read — the same accepted bucket-lifecycle garbage private-preview-file.md
 // already tolerates for a best-effort delete that fails or is skipped.
+// A failed commit is the one case where deleting IS safe: no mapping row ever
+// referenced previewID, so no reader can hold it. Without this the file is
+// orphaned on every failed attempt.
 func (s *PreviewService) commitMapping(ctx context.Context, sourceID, previewID string, renderedDate time.Time) (*model.PreviewCacheEntry, error) {
 	entry := model.PreviewCacheEntry{SourceFileID: sourceID, PreviewFileID: previewID, SourceUpdatedDate: renderedDate}
 	if err := s.cache.Upsert(ctx, entry); err != nil {
+		if derr := s.fileSvc.DeletePreviewFile(ctx, previewID); derr != nil {
+			s.logger.Warn("uncommitted preview file left behind",
+				zap.String("fileID", previewID), zap.Error(derr))
+		}
 		return nil, fmt.Errorf("%w: commit mapping: %w", ErrRenderFailed, err)
 	}
 	return &entry, nil
