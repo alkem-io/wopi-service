@@ -156,23 +156,6 @@ func (c *FileClient) WriteFile(ctx context.Context, documentID string, content i
 	return &result, nil
 }
 
-// FileExists checks whether a document's file exists in storage.
-func (c *FileClient) FileExists(ctx context.Context, documentID string) (bool, error) {
-	url := fmt.Sprintf("%s/internal/file/%s/content", c.baseURL, documentID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
-	if err != nil {
-		return false, fmt.Errorf("create exists request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("file-service exists: %w", err)
-	}
-	_ = resp.Body.Close()
-
-	return resp.StatusCode == http.StatusOK, nil
-}
-
 // CreatePreviewFile streams content into a NEW private file in
 // storageBucketID (skipDedup=true, no authorizationId) without buffering it.
 func (c *FileClient) CreatePreviewFile(ctx context.Context, storageBucketID string, content io.Reader) (string, error) {

@@ -28,9 +28,6 @@ func (s *stubFileService) ReadFile(_ context.Context, _ string) (io.ReadCloser, 
 func (s *stubFileService) WriteFile(_ context.Context, _ string, _ io.Reader) (*port.FileWriteResult, error) {
 	return nil, nil
 }
-func (s *stubFileService) FileExists(_ context.Context, _ string) (bool, error) {
-	return false, nil
-}
 func (s *stubFileService) CreatePreviewFile(_ context.Context, _ string, _ io.Reader) (string, error) {
 	return "", nil
 }

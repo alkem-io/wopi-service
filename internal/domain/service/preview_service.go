@@ -19,10 +19,6 @@ import (
 // maxActiveRenders bounds concurrent Collabora conversions.
 const maxActiveRenders = 2
 
-// resolveMissMaxAttempts bounds resolveMiss's re-entry loop — never an
-// unbounded spin against one frozen source-date observation.
-const resolveMissMaxAttempts = 3
-
 // RenderTimeout bounds one admitted render job — WOPI's shared HTTP write
 // timeout, not a preview-specific setting. A var so tests can shorten it.
 var RenderTimeout = 60 * time.Second
@@ -31,6 +27,11 @@ var RenderTimeout = 60 * time.Second
 var (
 	ErrRenderAdmissionFull = errors.New("render admission queue is full")
 	ErrRenderFailed        = errors.New("preview render failed")
+	// ErrStaleSharedRender means the joined single-flight result predates the
+	// source date this request observed. The caller gets 503 with no pixels; a
+	// later ordinary request renders the newer state. There is no re-entry
+	// loop and no automatic retry (ADR 0013, 2026-09-25).
+	ErrStaleSharedRender = errors.New("shared render predates the observed source state")
 )
 
 // PreviewResult is Resolve's result; Body is nil iff NotModified.
@@ -131,40 +132,78 @@ func (s *PreviewService) currentMapping(ctx context.Context, sourceID string, cu
 	return nil, nil
 }
 
-// resolveMiss collapses concurrent misses via single-flight; a stale result
-// re-enters against a freshly re-read date, bounded by resolveMissMaxAttempts.
+// resolveMiss collapses concurrent misses via single-flight. A waiter joins
+// exactly ONE shared result: if that result predates the date this request
+// observed, it gets ErrStaleSharedRender (503, no pixels) rather than looping.
 func (s *PreviewService) resolveMiss(ctx context.Context, sourceID, extension string, observedDate time.Time) (*model.PreviewCacheEntry, error) {
-	for attempt := 1; ; attempt++ {
-		ch := s.flight.DoChan(sourceID, func() (interface{}, error) {
-			return s.renderAndSwap(sourceID, extension)
-		})
-		select {
-		case res := <-ch:
-			if res.Err != nil {
-				return nil, res.Err
-			}
-			entry := res.Val.(*model.PreviewCacheEntry)
-			if !entry.SourceUpdatedDate.Before(observedDate) || attempt >= resolveMissMaxAttempts {
-				return entry, nil
-			}
-		case <-ctx.Done():
-			return nil, ctx.Err()
+	ch := s.flight.DoChan(sourceID, func() (interface{}, error) {
+		return s.renderAndStore(sourceID, extension)
+	})
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			return nil, res.Err
 		}
-		src, err := s.fileSvc.FindByID(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("re-observe source: %w", err)
+		entry := res.Val.(*model.PreviewCacheEntry)
+		if entry.SourceUpdatedDate.Before(observedDate) {
+			return nil, ErrStaleSharedRender
 		}
-		if src == nil {
-			return nil, ErrDocumentNotFound
-		}
-		observedDate = src.UpdatedAt
+		return entry, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
-// renderAndSwap is the single-flight leader for one source miss: admit,
-// recheck the cache, render, store, and atomically swap the mapping — the
-// same path a 404'd preview file repairs through.
-func (s *PreviewService) renderAndSwap(sourceID, extension string) (*model.PreviewCacheEntry, error) {
+// writeTarget decides, BEFORE the renderer's one-pass stream is consumed, what
+// this job will do with the pixels it is about to produce. It returns either a
+// still-current cached entry to reuse (no render needed at all), or the preview
+// file ID to replace in place — empty meaning no preview row exists yet and one
+// must be created.
+func (s *PreviewService) writeTarget(ctx context.Context, sourceID string, srcUpdatedAt time.Time) (*model.PreviewCacheEntry, string, error) {
+	mapped, err := s.cache.FindBySourceID(ctx, sourceID)
+	if err != nil {
+		return nil, "", fmt.Errorf("lookup preview cache: %w", err)
+	}
+	if mapped == nil {
+		return nil, "", nil
+	}
+
+	// Recheck with the SUPPORTED content GET: a job that filled the cache while
+	// this one queued must be reused. Never HEAD — file-service registers GET
+	// only on that path, so HEAD yields 405 and would be misread as absence.
+	if mapped.SourceUpdatedDate.Equal(srcUpdatedAt) {
+		body, rerr := s.fileSvc.ReadFile(ctx, mapped.PreviewFileID)
+		if rerr == nil {
+			_ = body.Close()
+			return mapped, "", nil
+		}
+		if !errors.Is(rerr, fs.ErrNotExist) {
+			// 405/5xx/timeout/conflict are upstream errors, never absence.
+			return nil, "", fmt.Errorf("%w: recheck cached preview: %w", ErrRenderFailed, rerr)
+		}
+	}
+
+	// Missing content is not a missing row: only the metadata API can say
+	// whether the logical file still exists, and that is what decides PUT vs
+	// POST. A create here would strand the row the mapping still points at.
+	meta, merr := s.fileSvc.FindByID(ctx, mapped.PreviewFileID)
+	if merr != nil {
+		return nil, "", fmt.Errorf("%w: lookup preview metadata: %w", ErrRenderFailed, merr)
+	}
+	if meta == nil {
+		return nil, "", nil
+	}
+	return nil, mapped.PreviewFileID, nil
+}
+
+// renderAndStore is the single-flight leader for one source miss: admit,
+// decide the write target, render, write, commit. The write target is resolved
+// BEFORE rendering because the renderer's PNG stream is one-pass and cannot be
+// replayed — so a failed write is never recoverable by creating a file instead.
+// A present preview row (even one with missing content) is refreshed in place
+// under its stable fileID; only a genuine metadata 404, or no mapping at all,
+// creates one.
+func (s *PreviewService) renderAndStore(sourceID, extension string) (*model.PreviewCacheEntry, error) {
 	if !s.slots.TryAcquire(1) {
 		return nil, ErrRenderAdmissionFull
 	}
@@ -185,12 +224,13 @@ func (s *PreviewService) renderAndSwap(sourceID, extension string) (*model.Previ
 	if src == nil {
 		return nil, ErrDocumentNotFound
 	}
-	// Recheck must also confirm the preview file still reads back, or a
-	// mapping stuck on a 404'd file would short-circuit on itself.
-	if existing, err := s.currentMapping(ctx, sourceID, src.UpdatedAt); err == nil && existing != nil {
-		if ok, err := s.fileSvc.FileExists(ctx, existing.PreviewFileID); err == nil && ok {
-			return existing, nil
-		}
+
+	reuse, refreshID, err := s.writeTarget(ctx, sourceID, src.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if reuse != nil {
+		return reuse, nil
 	}
 
 	content, err := s.fileSvc.ReadFile(ctx, sourceID)
@@ -205,6 +245,16 @@ func (s *PreviewService) renderAndSwap(sourceID, extension string) (*model.Previ
 	}
 	defer func() { _ = png.Close() }()
 
+	if refreshID != "" {
+		if _, werr := s.fileSvc.WriteFile(ctx, refreshID, png); werr != nil {
+			// Includes a 409: the guarded update lost a race or the row was
+			// deleted. Never a licence to create a second preview file, and the
+			// one-pass stream is spent anyway. Leave the date stale.
+			return nil, fmt.Errorf("%w: replace preview content: %w", ErrRenderFailed, werr)
+		}
+		return s.commitRefresh(ctx, sourceID, refreshID, src.UpdatedAt)
+	}
+
 	previewID, err := s.fileSvc.CreatePreviewFile(ctx, src.StorageBucketID, png)
 	if err != nil {
 		return nil, fmt.Errorf("%w: store preview: %w", ErrRenderFailed, err)
@@ -212,15 +262,23 @@ func (s *PreviewService) renderAndSwap(sourceID, extension string) (*model.Previ
 	return s.commitMapping(ctx, sourceID, previewID, src.UpdatedAt)
 }
 
-// commitMapping atomically swaps the mapping to the newly rendered preview.
-// It never deletes the file it superseded: a concurrent reader may already
-// hold that row and be mid-stream (Resolve reads the row and its file as
-// two steps), so deleting here would race it into a 404 or a truncated
-// read — the same accepted bucket-lifecycle garbage private-preview-file.md
-// already tolerates for a best-effort delete that fails or is skipped.
-// A failed commit is the one case where deleting IS safe: no mapping row ever
-// referenced previewID, so no reader can hold it. Without this the file is
-// orphaned on every failed attempt.
+// commitRefresh advances ONLY source_updated_date, keeping preview_file_id.
+// The preview file pre-existed this render, so a failed mapping write must
+// never delete it: the date simply stays stale and a later request re-renders
+// into the same row.
+func (s *PreviewService) commitRefresh(ctx context.Context, sourceID, previewID string, renderedDate time.Time) (*model.PreviewCacheEntry, error) {
+	entry := model.PreviewCacheEntry{SourceFileID: sourceID, PreviewFileID: previewID, SourceUpdatedDate: renderedDate}
+	if err := s.cache.Upsert(ctx, entry); err != nil {
+		return nil, fmt.Errorf("%w: advance mapping date: %w", ErrRenderFailed, err)
+	}
+	return &entry, nil
+}
+
+// commitMapping publishes a NEWLY CREATED preview file's id and date together.
+// It runs only on first creation or genuine repair, never on an ordinary
+// refresh. A failed commit is the one case where deleting IS safe: no mapping
+// row ever referenced previewID, so no reader can hold it. Without this the
+// file is orphaned on every failed attempt.
 func (s *PreviewService) commitMapping(ctx context.Context, sourceID, previewID string, renderedDate time.Time) (*model.PreviewCacheEntry, error) {
 	entry := model.PreviewCacheEntry{SourceFileID: sourceID, PreviewFileID: previewID, SourceUpdatedDate: renderedDate}
 	if err := s.cache.Upsert(ctx, entry); err != nil {

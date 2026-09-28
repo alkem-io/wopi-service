@@ -55,11 +55,6 @@ func (m *handlerMockFileService) WriteFile(_ context.Context, id string, content
 	return &port.FileWriteResult{ExternalID: "new-hash", Size: int64(len(data))}, nil
 }
 
-func (m *handlerMockFileService) FileExists(_ context.Context, id string) (bool, error) {
-	_, ok := m.files[id]
-	return ok, nil
-}
-
 func (m *handlerMockFileService) CreatePreviewFile(_ context.Context, _ string, content io.Reader) (string, error) {
 	data, err := io.ReadAll(content)
 	if err != nil {

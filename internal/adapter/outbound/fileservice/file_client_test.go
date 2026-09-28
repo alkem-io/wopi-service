@@ -204,36 +204,6 @@ func TestFileClient_WriteFile_NotFound(t *testing.T) {
 	}
 }
 
-func TestFileClient_FileExists_True(t *testing.T) {
-	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	client := NewFileClient(url)
-	exists, err := client.FileExists(context.Background(), "doc-1")
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if !exists {
-		t.Error("expected exists=true")
-	}
-}
-
-func TestFileClient_FileExists_False(t *testing.T) {
-	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-
-	client := NewFileClient(url)
-	exists, err := client.FileExists(context.Background(), "missing")
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if exists {
-		t.Error("expected exists=false")
-	}
-}
-
 func TestFileClient_FindByID_PopulatesStorageBucketID(t *testing.T) {
 	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

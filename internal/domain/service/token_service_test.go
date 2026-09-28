@@ -66,10 +66,6 @@ func (m *mockFileSvcForToken) WriteFile(_ context.Context, _ string, _ io.Reader
 	return nil, nil
 }
 
-func (m *mockFileSvcForToken) FileExists(_ context.Context, _ string) (bool, error) {
-	return false, nil
-}
-
 func (m *mockFileSvcForToken) CreatePreviewFile(_ context.Context, _ string, _ io.Reader) (string, error) {
 	return "", nil
 }

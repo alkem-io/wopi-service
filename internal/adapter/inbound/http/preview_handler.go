@@ -68,6 +68,10 @@ func (h *PreviewHandler) writeError(w http.ResponseWriter, fileID string, err er
 		http.Error(w, `{"error":"document type not supported for preview"}`, http.StatusUnprocessableEntity)
 	case errors.Is(err, service.ErrRenderAdmissionFull):
 		http.Error(w, `{"error":"preview render capacity exceeded"}`, http.StatusServiceUnavailable)
+	case errors.Is(err, service.ErrStaleSharedRender):
+		// The joined render predates this request's observed source state. No
+		// pixels, no retry: a later ordinary request renders the newer state.
+		http.Error(w, `{"error":"preview not current; retry later"}`, http.StatusServiceUnavailable)
 	case errors.Is(err, service.ErrRenderFailed):
 		h.logger.Error("preview render failed", zap.String("fileID", fileID), zap.Error(err))
 		http.Error(w, `{"error":"preview render failed"}`, http.StatusBadGateway)

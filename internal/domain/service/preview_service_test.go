@@ -26,18 +26,18 @@ const previewTestMIME = "application/vnd.openxmlformats-officedocument.wordproce
 // It stores both source documents/content and created preview files in the
 // same maps, mirroring how file-service holds both in one bucket.
 type previewFakeFileService struct {
-	mu           sync.Mutex
-	docs         map[string]*model.Document
-	files        map[string][]byte
-	deleted      map[string]bool
-	nextID       int32
-	findErr      error
-	createErr    error
-	readErr      map[string]error
-	readGates    map[string]chan struct{}
-	readEntered  map[string]chan struct{}
-	laggingDates map[string][]time.Time
-	findCalls    map[string]int
+	mu          sync.Mutex
+	docs        map[string]*model.Document
+	files       map[string][]byte
+	deleted     map[string]bool
+	nextID      int32
+	findErr     error
+	createErr   error
+	readErr     map[string]error
+	readGates   map[string]chan struct{}
+	readEntered map[string]chan struct{}
+	writes      map[string]int
+	writeErr    map[string]error
 	// spellingAliases mirrors file-service resolving a document ID with
 	// uuid.Parse: case-insensitive, and accepting hyphen-less, urn:uuid:
 	// and braced forms. Alternate spelling -> canonical document ID.
@@ -52,6 +52,8 @@ func newPreviewFakeFileService() *previewFakeFileService {
 		readErr:     make(map[string]error),
 		readGates:   make(map[string]chan struct{}),
 		readEntered: make(map[string]chan struct{}),
+		writes:      make(map[string]int),
+		writeErr:    make(map[string]error),
 
 		spellingAliases: make(map[string]string),
 	}
@@ -72,26 +74,6 @@ func (f *previewFakeFileService) canonicalise(id string) string {
 		return canonical
 	}
 	return id
-}
-
-// setLaggingDates makes FindByID(id) return dates[n-1] on its n-th call
-// (clamped to the last entry once exhausted), simulating a load-balanced
-// file-service replica set whose metadata reads are not read-your-writes
-// consistent.
-func (f *previewFakeFileService) setLaggingDates(id string, dates ...time.Time) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.laggingDates == nil {
-		f.laggingDates = make(map[string][]time.Time)
-		f.findCalls = make(map[string]int)
-	}
-	f.laggingDates[id] = dates
-}
-
-func (f *previewFakeFileService) findCallCount(id string) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.findCalls[id]
 }
 
 // armReadGate makes the NEXT ReadFile(id) call park after it has been
@@ -121,14 +103,6 @@ func (f *previewFakeFileService) FindByID(_ context.Context, id string) (*model.
 		return nil, nil
 	}
 	cp := *doc
-	if seq, ok := f.laggingDates[id]; ok {
-		idx := f.findCalls[id]
-		f.findCalls[id]++
-		if idx >= len(seq) {
-			idx = len(seq) - 1
-		}
-		cp.UpdatedAt = seq[idx]
-	}
 	return &cp, nil
 }
 
@@ -158,15 +132,35 @@ func (f *previewFakeFileService) ReadFile(_ context.Context, id string) (io.Read
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
-func (f *previewFakeFileService) WriteFile(_ context.Context, _ string, _ io.Reader) (*port.FileWriteResult, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (f *previewFakeFileService) FileExists(_ context.Context, id string) (bool, error) {
+// WriteFile replaces an EXISTING logical file's content in place, exactly as
+// file-service's PUT does: the id and its (absent) authorization are preserved,
+// and no new row is created. writeErr injects an upstream failure (405/5xx/409).
+func (f *previewFakeFileService) WriteFile(_ context.Context, id string, content io.Reader) (*port.FileWriteResult, error) {
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return nil, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	_, ok := f.files[f.canonicalise(id)]
-	return ok, nil
+	if werr, ok := f.writeErr[id]; ok {
+		return nil, werr
+	}
+	id = f.canonicalise(id)
+	// Existence is a property of the LOGICAL row, not of its content: PUT must
+	// succeed on a row whose bytes are missing, repairing it in place.
+	if _, exists := f.docs[id]; !exists {
+		return nil, fmt.Errorf("document not found: %s", id)
+	}
+	f.files[id] = data
+	f.writes[id]++
+	return &port.FileWriteResult{Size: int64(len(data))}, nil
+}
+
+// writeCount reports how many in-place replacements a preview file received.
+func (f *previewFakeFileService) writeCount(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.writes[id]
 }
 
 func (f *previewFakeFileService) CreatePreviewFile(_ context.Context, _ string, content io.Reader) (string, error) {
@@ -179,7 +173,11 @@ func (f *previewFakeFileService) CreatePreviewFile(_ context.Context, _ string, 
 	}
 	id := fmt.Sprintf("preview-%d", atomic.AddInt32(&f.nextID, 1))
 	f.mu.Lock()
+	// A create yields BOTH a logical row (metadata) and content, as
+	// POST /internal/file does — the metadata row is what later decides
+	// PUT-vs-POST, so a fake that only stores bytes would force create forever.
 	f.files[id] = data
+	f.docs[id] = &model.Document{ID: id, StorageBucketID: "bucket"}
 	f.mu.Unlock()
 	return id, nil
 }
@@ -422,7 +420,7 @@ func TestPreviewService_Resolve_RevokedActorWithMatchingETagIsForbiddenNot304(t 
 	}
 }
 
-func TestPreviewService_Resolve_StaleDateRendersAgainAndSwapsMapping(t *testing.T) {
+func TestPreviewService_Resolve_StaleDateRendersAgainIntoTheSameFile(t *testing.T) {
 	files := newPreviewFakeFileService()
 	t1 := time.Now().UTC().Truncate(time.Second)
 	files.docs["src"] = &model.Document{ID: "src", AuthorizationPolicyID: "pol", MimeType: previewTestMIME, Size: 1, UpdatedAt: t1, StorageBucketID: "bucket"}
@@ -452,29 +450,39 @@ func TestPreviewService_Resolve_StaleDateRendersAgainAndSwapsMapping(t *testing.
 	}
 
 	secondEntry, _ := cache.FindBySourceID(context.Background(), "src")
-	if secondEntry.PreviewFileID == firstEntry.PreviewFileID {
-		t.Error("a re-render must create a NEW preview file, never update the old one in place")
+	if secondEntry.PreviewFileID != firstEntry.PreviewFileID {
+		t.Errorf("preview_file_id = %q, want the stable %q — a re-render replaces content in place, it never creates a second file",
+			secondEntry.PreviewFileID, firstEntry.PreviewFileID)
 	}
-	// The superseded file is deliberately left alone on the request path: a
-	// concurrent reader may still be resolving/streaming it (see
-	// TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteConcurrentSwap),
-	// and the contract already treats an undeleted superseded file as
-	// accepted bucket-lifecycle garbage.
+	if got := files.writeCount(firstEntry.PreviewFileID); got != 1 {
+		t.Errorf("in-place replacements = %d, want 1", got)
+	}
+	// Nothing is superseded, so nothing is deleted: the row that the previous
+	// render committed is the row this render just refreshed.
 	if files.deleted[firstEntry.PreviewFileID] {
-		t.Error("the superseded preview file must not be deleted from the request path")
+		t.Error("the preview file must never be deleted from the request path")
 	}
-	if _, err := files.ReadFile(context.Background(), firstEntry.PreviewFileID); err != nil {
-		t.Errorf("superseded preview file should still be readable, got: %v", err)
+	body, err := files.ReadFile(context.Background(), firstEntry.PreviewFileID)
+	if err != nil {
+		t.Fatalf("preview file should still be readable, got: %v", err)
+	}
+	defer func() { _ = body.Close() }()
+	got, _ := io.ReadAll(body)
+	if string(got) != "PNG-2" {
+		t.Errorf("preview bytes = %q, want PNG-2 (the newer render, under the same file ID)", got)
 	}
 }
 
-// TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteConcurrentSwap
-// proves the invariant from contracts/private-preview-file.md: a reader that
-// has already resolved sourceID's mapping to one preview fileID/date still
-// streams exactly that row's bytes even though its own file-service read is
-// still in flight when a concurrent request fully re-renders and swaps the
-// mapping to a new preview fileID. Gated on channels, not sleeps.
-func TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteConcurrentSwap(t *testing.T) {
+// TestPreviewService_ReaderMidStreamSeesNewerPixelsUnderItsOlderETag pins the
+// tradeoff that contracts/private-preview-file.md accepts explicitly, and that
+// the stable-file design makes reachable: because a refresh replaces content
+// under the SAME preview file ID, a reader whose file-service read is still in
+// flight when that refresh lands streams the NEWER pixels while carrying the
+// older ETag it resolved with. That is deliberate and bounded — a browser
+// revalidating with that ETag gets the current one on its next request — and it
+// is strictly better than the alternative it replaces, where every refresh
+// leaked a second, never-reclaimed preview file. Gated on channels, not sleeps.
+func TestPreviewService_ReaderMidStreamSeesNewerPixelsUnderItsOlderETag(t *testing.T) {
 	files := newPreviewFakeFileService()
 	t1 := time.Now().UTC().Truncate(time.Second)
 	files.docs["src"] = &model.Document{ID: "src", AuthorizationPolicyID: "pol", MimeType: previewTestMIME, Size: 1, UpdatedAt: t1, StorageBucketID: "bucket"}
@@ -503,8 +511,7 @@ func TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteC
 
 	<-entered // A resolved the mapping row and is mid file-service read
 
-	// A concurrent save fully re-renders and swaps the mapping to a brand
-	// new preview file while A is still parked above.
+	// A concurrent save re-renders into the very file A is mid-read of.
 	t2 := t1.Add(time.Minute)
 	files.setUpdatedAt("src", t2)
 	files.files["src"] = []byte("v2")
@@ -512,8 +519,9 @@ func TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteC
 		t.Fatalf("concurrent re-render Resolve error: %v", err)
 	}
 	secondEntry, _ := cache.FindBySourceID(context.Background(), "src")
-	if secondEntry.PreviewFileID == firstEntry.PreviewFileID {
-		t.Fatal("setup error: the mapping did not actually swap")
+	if secondEntry.PreviewFileID != firstEntry.PreviewFileID {
+		t.Fatalf("setup error: the refresh should have reused %q, got %q",
+			firstEntry.PreviewFileID, secondEntry.PreviewFileID)
 	}
 
 	release() // let A's blocked read proceed
@@ -526,47 +534,13 @@ func TestPreviewService_ReaderHoldingResolvedMappingStreamsThatRowsBytesDespiteC
 	if err != nil {
 		t.Fatalf("A body read error: %v", err)
 	}
-	if string(body) != "PNG-1" {
-		t.Errorf("A body = %q, want PNG-1 (exactly the bytes committed with its own resolved row)", body)
+	// The accepted tradeoff, asserted rather than left implicit: A streams the
+	// refreshed bytes, not the ones current when it resolved.
+	if string(body) != "PNG-2" {
+		t.Errorf("A body = %q, want PNG-2 (the refreshed content of the same preview file)", body)
 	}
 	if oa.res.ETag != etagFor(t1) {
-		t.Errorf("A ETag = %q, want %q (its own row's date, never the swapped-in one)", oa.res.ETag, etagFor(t1))
-	}
-}
-
-// TestPreviewService_ResolveMissBoundsReEntryAgainstALaggingReplicaObservation
-// proves resolveMiss cannot spin unboundedly when a load-balanced
-// file-service replica set answers metadata reads inconsistently: Resolve's
-// own top-level read observes a newer date, but every later read (the
-// render's re-lookup, and every re-observation inside resolveMiss) lands on
-// a replica still reporting an older one. The render and file-service call
-// counts must stay small and bounded, never grow into an unbounded spin.
-func TestPreviewService_ResolveMissBoundsReEntryAgainstALaggingReplicaObservation(t *testing.T) {
-	files := newPreviewFakeFileService()
-	t1 := time.Now().UTC().Truncate(time.Second)
-	t2 := t1.Add(time.Minute)
-	files.docs["src"] = &model.Document{ID: "src", AuthorizationPolicyID: "pol", MimeType: previewTestMIME, Size: 1, UpdatedAt: t2, StorageBucketID: "bucket"}
-	files.files["src"] = []byte("content")
-	// Call 1 (Resolve's own top-level read) observes t2; every call after
-	// that lands on a lagging replica still reporting t1.
-	files.setLaggingDates("src", t2, t1, t1, t1, t1, t1, t1, t1, t1, t1)
-	renderer := &fakeRenderer{}
-	svc := NewPreviewService(files, newAuthorizedActor(), newPreviewFakeCache(), renderer, 8, zap.NewNop())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	res, err := svc.Resolve(ctx, "actor", "src", "")
-	if err != nil {
-		t.Fatalf("Resolve error: %v", err)
-	}
-	if res.Body == nil {
-		t.Fatal("expected a preview body despite the lagging replica")
-	}
-	if got := atomic.LoadInt32(&renderer.calls); got > resolveMissMaxAttempts {
-		t.Errorf("renderer calls = %d, want at most %d (bounded re-entry, not an unbounded spin)", got, resolveMissMaxAttempts)
-	}
-	if got := files.findCallCount("src"); got > resolveMissMaxAttempts+2 {
-		t.Errorf("file-service metadata reads = %d, want a small bounded number, not an unbounded spin", got)
+		t.Errorf("A ETag = %q, want %q (the date A itself resolved — never silently advanced mid-request)", oa.res.ETag, etagFor(t1))
 	}
 }
 
@@ -720,11 +694,15 @@ func TestPreviewService_ConcurrentColdRequestsCollapseToOneRender(t *testing.T) 
 	}
 }
 
-// TestPreviewService_WaiterObservingNewerDateReRenders proves that a
-// waiter that sees a newer source date than the in-flight job's rendered
-// date must never accept that older representation, and must itself
-// trigger a fresh render once the stale job releases the single-flight key.
-func TestPreviewService_WaiterObservingNewerDateReRenders(t *testing.T) {
+// TestPreviewService_WaiterObservingNewerDateGetsNoPixels proves the adopted
+// contract for the real case — a document saved while an older render is in
+// flight. The waiter joins ONE shared result; because that result records a
+// source date older than the one the waiter itself observed, it is refused
+// with ErrStaleSharedRender (503, no pixels) rather than being served a
+// representation it knows is stale or looping for a fresh one. The leader
+// still gets its own result, and an ordinary later request renders the newer
+// state. There is no attempt limit and no automatic client retry.
+func TestPreviewService_WaiterObservingNewerDateGetsNoPixels(t *testing.T) {
 	files := newPreviewFakeFileService()
 	t1 := time.Now().UTC().Truncate(time.Second)
 	t2 := t1.Add(time.Minute)
@@ -770,16 +748,28 @@ func TestPreviewService_WaiterObservingNewerDateReRenders(t *testing.T) {
 	if oa.err != nil {
 		t.Fatalf("A error: %v", oa.err)
 	}
-	ob := <-resB
-	if ob.err != nil {
-		t.Fatalf("B error: %v", ob.err)
+	if oa.res.ETag != etagFor(t1) {
+		t.Errorf("A's ETag = %q, want %q (the state A observed and rendered)", oa.res.ETag, etagFor(t1))
 	}
 
-	if oa.res.ETag == ob.res.ETag {
-		t.Fatalf("A (%s) and B (%s) must not share an ETag", oa.res.ETag, ob.res.ETag)
+	ob := <-resB
+	if !errors.Is(ob.err, ErrStaleSharedRender) {
+		t.Fatalf("B error = %v, want ErrStaleSharedRender", ob.err)
 	}
-	if ob.res.ETag != etagFor(t2) {
-		t.Errorf("B's ETag = %q, want %q (current source date, never the stale render's)", ob.res.ETag, etagFor(t2))
+	if ob.res != nil {
+		t.Error("B must receive no pixels at all, not a stale representation")
+	}
+	if atomic.LoadInt32(&renderer.calls) != 1 {
+		t.Errorf("renderer calls = %d, want 1 — a refused waiter must not loop into its own render", renderer.calls)
+	}
+
+	// The newer state is not lost: an ordinary later request renders it.
+	res, err := svc.Resolve(context.Background(), "actor", "src", "")
+	if err != nil {
+		t.Fatalf("later Resolve error: %v", err)
+	}
+	if res.ETag != etagFor(t2) {
+		t.Errorf("later ETag = %q, want %q", res.ETag, etagFor(t2))
 	}
 	if atomic.LoadInt32(&renderer.calls) != 2 {
 		t.Errorf("renderer calls = %d, want 2 (one per distinct source state)", renderer.calls)
@@ -1069,5 +1059,182 @@ func TestPreviewService_ResolveKeysOnCanonicalIDNotPathSpelling(t *testing.T) {
 			len(rows), rows, canonical)
 	} else if rows[0] != canonical {
 		t.Errorf("cache row keyed on %q, want the canonical %q", rows[0], canonical)
+	}
+}
+
+// --- stable-preview-file behaviour (ADR 0013, 2026-09-25) ---
+
+// previewSource builds the "src" source document with saved bytes, ready to
+// render.
+func previewSource(files *previewFakeFileService, at time.Time) {
+	files.docs["src"] = &model.Document{
+		ID: "src", AuthorizationPolicyID: "pol", MimeType: previewTestMIME,
+		Size: 1, StorageBucketID: "bucket", UpdatedAt: at,
+	}
+	files.files["src"] = []byte("source bytes")
+}
+
+// countPreviewFiles counts logical preview files, excluding the source itself.
+func countPreviewFiles(files *previewFakeFileService, sourceID string) int {
+	files.mu.Lock()
+	defer files.mu.Unlock()
+	n := 0
+	for id := range files.files {
+		if id != sourceID {
+			n++
+		}
+	}
+	return n
+}
+
+// An ordinary stale refresh must REPLACE the mapped preview's content under its
+// existing fileID and advance only the date. Creating a second logical file on
+// every refresh is the growth this design exists to remove (wopi-service#36).
+func TestPreviewService_RefreshReplacesContentKeepingTheStableFileID(t *testing.T) {
+	files := newPreviewFakeFileService()
+	t0 := time.Now().UTC().Truncate(time.Second)
+	previewSource(files, t0)
+	cache := newPreviewFakeCache()
+	renderer := &fakeRenderer{}
+	svc := NewPreviewService(files, newAuthorizedActor(), cache, renderer, 8, zap.NewNop())
+
+	res, err := svc.Resolve(context.Background(), "actor", "src", "")
+	if err != nil {
+		t.Fatalf("first Resolve: %v", err)
+	}
+	_ = res.Body.Close()
+	first := cache.rows["src"].PreviewFileID
+
+	for i := 1; i <= 3; i++ {
+		files.setUpdatedAt("src", t0.Add(time.Duration(i)*time.Minute))
+		r, rerr := svc.Resolve(context.Background(), "actor", "src", "")
+		if rerr != nil {
+			t.Fatalf("refresh %d: %v", i, rerr)
+		}
+		_ = r.Body.Close()
+	}
+
+	if got := cache.rows["src"].PreviewFileID; got != first {
+		t.Errorf("preview_file_id = %q after refreshes, want the stable %q", got, first)
+	}
+	if got := cache.rows["src"].SourceUpdatedDate; !got.Equal(t0.Add(3 * time.Minute)) {
+		t.Errorf("source_updated_date = %v, want the last rendered date", got)
+	}
+	if got := files.writeCount(first); got != 3 {
+		t.Errorf("in-place replacements = %d, want 3", got)
+	}
+	if got := countPreviewFiles(files, "src"); got != 1 {
+		t.Errorf("logical preview files = %d, want exactly 1 across 4 renders", got)
+	}
+	if got := atomic.LoadInt32(&renderer.calls); got != 4 {
+		t.Errorf("renders = %d, want 4", got)
+	}
+}
+
+// Content gone but the logical row still present must be repaired under the
+// SAME id — a content 404 alone never selects create.
+func TestPreviewService_MissingContentRepairsUnderTheSameID(t *testing.T) {
+	files := newPreviewFakeFileService()
+	t0 := time.Now().UTC().Truncate(time.Second)
+	previewSource(files, t0)
+	cache := newPreviewFakeCache()
+	svc := NewPreviewService(files, newAuthorizedActor(), cache, &fakeRenderer{}, 8, zap.NewNop())
+
+	res, err := svc.Resolve(context.Background(), "actor", "src", "")
+	if err != nil {
+		t.Fatalf("first Resolve: %v", err)
+	}
+	_ = res.Body.Close()
+	previewID := cache.rows["src"].PreviewFileID
+
+	// Content vanishes; the logical row survives, so metadata still resolves.
+	files.mu.Lock()
+	delete(files.files, previewID)
+	files.docs[previewID] = &model.Document{ID: previewID, StorageBucketID: "bucket"}
+	files.mu.Unlock()
+
+	r, err := svc.Resolve(context.Background(), "actor", "src", "")
+	if err != nil {
+		t.Fatalf("repair Resolve: %v", err)
+	}
+	_ = r.Body.Close()
+
+	if got := cache.rows["src"].PreviewFileID; got != previewID {
+		t.Errorf("preview_file_id = %q after repair, want the same %q", got, previewID)
+	}
+	if got := files.writeCount(previewID); got != 1 {
+		t.Errorf("repair must PUT under the existing id, writes = %d", got)
+	}
+}
+
+// A genuine metadata 404 — the logical row is gone — is the ONLY case that
+// creates a replacement file, publishing id and date together.
+func TestPreviewService_MetadataGoneCreatesOneReplacement(t *testing.T) {
+	files := newPreviewFakeFileService()
+	t0 := time.Now().UTC().Truncate(time.Second)
+	previewSource(files, t0)
+	cache := newPreviewFakeCache()
+	svc := NewPreviewService(files, newAuthorizedActor(), cache, &fakeRenderer{}, 8, zap.NewNop())
+
+	res, err := svc.Resolve(context.Background(), "actor", "src", "")
+	if err != nil {
+		t.Fatalf("first Resolve: %v", err)
+	}
+	_ = res.Body.Close()
+	gone := cache.rows["src"].PreviewFileID
+
+	files.mu.Lock()
+	delete(files.files, gone)
+	delete(files.docs, gone)
+	files.mu.Unlock()
+
+	r, err := svc.Resolve(context.Background(), "actor", "src", "")
+	if err != nil {
+		t.Fatalf("replacement Resolve: %v", err)
+	}
+	_ = r.Body.Close()
+
+	got := cache.rows["src"].PreviewFileID
+	if got == gone {
+		t.Errorf("preview_file_id still %q; a vanished row must be replaced", gone)
+	}
+	if got == "" {
+		t.Error("replacement id not published")
+	}
+}
+
+// An upstream PUT failure — 405/5xx/409 alike — must fail the image request
+// without creating a second preview file and without advancing the date. A 409
+// is never a content collision and never licence to create (ADR 0013 addendum).
+func TestPreviewService_WriteFailureNeitherCreatesNorAdvances(t *testing.T) {
+	files := newPreviewFakeFileService()
+	t0 := time.Now().UTC().Truncate(time.Second)
+	previewSource(files, t0)
+	cache := newPreviewFakeCache()
+	svc := NewPreviewService(files, newAuthorizedActor(), cache, &fakeRenderer{}, 8, zap.NewNop())
+
+	res, err := svc.Resolve(context.Background(), "actor", "src", "")
+	if err != nil {
+		t.Fatalf("first Resolve: %v", err)
+	}
+	_ = res.Body.Close()
+	previewID := cache.rows["src"].PreviewFileID
+
+	files.mu.Lock()
+	files.writeErr[previewID] = fmt.Errorf("file-service write status 409")
+	files.mu.Unlock()
+	files.setUpdatedAt("src", t0.Add(time.Minute))
+
+	if _, err := svc.Resolve(context.Background(), "actor", "src", ""); !errors.Is(err, ErrRenderFailed) {
+		t.Fatalf("error = %v, want ErrRenderFailed", err)
+	}
+	if got := cache.rows["src"].PreviewFileID; got != previewID {
+		t.Errorf("preview_file_id changed to %q on a failed PUT", got)
+	}
+	if got := cache.rows["src"].SourceUpdatedDate; !got.Equal(t0) {
+		t.Errorf("source_updated_date advanced to %v despite the failed write", got)
+	}
+	if got := countPreviewFiles(files, "src"); got != 1 {
+		t.Errorf("preview files = %d; a failed PUT must not fall back to create", got)
 	}
 }
