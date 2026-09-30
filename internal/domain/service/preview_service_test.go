@@ -309,7 +309,9 @@ func TestPreviewService_Resolve_SourceNotFound(t *testing.T) {
 
 func TestPreviewService_Resolve_UnsupportedSourceType(t *testing.T) {
 	files := newPreviewFakeFileService()
-	files.docs["src"] = &model.Document{ID: "src", AuthorizationPolicyID: "pol", MimeType: "application/pdf", Size: 1, UpdatedAt: time.Now()}
+	// A plain text file: readable, but not a Collabora document type. PDF used
+	// to stand in here and no longer can — it is previewable now.
+	files.docs["src"] = &model.Document{ID: "src", AuthorizationPolicyID: "pol", MimeType: "text/plain", Size: 1, UpdatedAt: time.Now()}
 	svc := NewPreviewService(files, newAuthorizedActor(), newPreviewFakeCache(), &fakeRenderer{}, 8, zap.NewNop())
 
 	_, err := svc.Resolve(context.Background(), "actor", "src", "")

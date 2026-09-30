@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestPreviewExtension_AllFourDocumentTypes(t *testing.T) {
+func TestPreviewExtension_AllDocumentTypes(t *testing.T) {
 	cases := []struct {
 		mime string
 		want string
@@ -26,6 +26,8 @@ func TestPreviewExtension_AllFourDocumentTypes(t *testing.T) {
 		{"application/vnd.oasis.opendocument.presentation", "odp"},
 		// drawing
 		{"application/vnd.oasis.opendocument.graphics", "odg"},
+		// pdf — view-only in the editor, but rendering never writes
+		{"application/pdf", "pdf"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.mime, func(t *testing.T) {
@@ -40,12 +42,13 @@ func TestPreviewExtension_AllFourDocumentTypes(t *testing.T) {
 	}
 }
 
-// TestPreviewExtension_ExcludesOutOfScopeTypes proves PDF and other
-// Collabora-editable-but-out-of-scope MIME types are rejected: preview
-// covers only the four existing Collabora document types, not
-// every type wopi-service can open in the editor.
-func TestPreviewExtension_ExcludesOutOfScopeTypes(t *testing.T) {
-	for _, mimeType := range []string{"application/pdf", "text/plain", "image/png", ""} {
+// TestPreviewExtension_ExcludesNonCollaboraTypes proves that a file which is
+// merely readable is still not previewable: the allow-list covers the Collabora
+// document types and nothing else, so an arbitrary upload can never reach the
+// renderer. PDF is deliberately NOT in this list any more — see the supported
+// table above and the note on previewExtensionByMIME.
+func TestPreviewExtension_ExcludesNonCollaboraTypes(t *testing.T) {
+	for _, mimeType := range []string{"text/plain", "image/png", "application/zip", ""} {
 		if _, err := PreviewExtension(mimeType); !errors.Is(err, ErrUnsupportedPreviewSource) {
 			t.Errorf("PreviewExtension(%q) error = %v, want ErrUnsupportedPreviewSource", mimeType, err)
 		}
