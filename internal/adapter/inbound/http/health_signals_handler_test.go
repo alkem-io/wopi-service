@@ -44,7 +44,10 @@ func (m *errFileSvc) WriteFile(_ context.Context, _ string, content io.Reader) (
 	_, _ = io.ReadAll(content)
 	return &port.FileWriteResult{ExternalID: "ext"}, nil
 }
-func (m *errFileSvc) FileExists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (m *errFileSvc) CreatePreviewFile(_ context.Context, _ string, _ io.Reader) (string, error) {
+	return "", nil
+}
+func (m *errFileSvc) DeletePreviewFile(_ context.Context, _ string) error { return nil }
 
 type errLockRepo struct{ findErr error }
 

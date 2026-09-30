@@ -23,6 +23,10 @@ type FileService interface {
 	ReadFile(ctx context.Context, documentID string) (io.ReadCloser, error)
 	// WriteFile replaces file content for a document (store-and-link).
 	WriteFile(ctx context.Context, documentID string, content io.Reader) (*FileWriteResult, error)
-	// FileExists checks whether a document's file exists in storage.
-	FileExists(ctx context.Context, documentID string) (bool, error)
+	// CreatePreviewFile streams content into a NEW private file (no
+	// authorizationId, skipDedup=true) in storageBucketID.
+	CreatePreviewFile(ctx context.Context, storageBucketID string, content io.Reader) (fileID string, err error)
+	// DeletePreviewFile best-effort deletes a superseded preview file; a
+	// file that is already gone is not an error.
+	DeletePreviewFile(ctx context.Context, fileID string) error
 }

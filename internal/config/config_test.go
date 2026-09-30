@@ -27,7 +27,7 @@ func TestLoad_Defaults(t *testing.T) {
 		"WOPI_DATABASE_HOST", "WOPI_DATABASE_PORT", "WOPI_DATABASE_NAME",
 		"NATS_URL", "FILE_SERVICE_URL", "WOPI_SERVER_PORT",
 		"RABBITMQ_URL", "RABBITMQ_HOST", "RABBITMQ_PORT", "RABBITMQ_USER",
-		"RABBITMQ_PASSWORD", "CONTRIBUTION_WINDOW",
+		"RABBITMQ_PASSWORD", "CONTRIBUTION_WINDOW", "WOPI_PREVIEW_RENDER_QUEUE_CAPACITY",
 	} {
 		t.Setenv(key, "")
 	}
@@ -65,6 +65,53 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.RabbitMQ.IsConfigured() {
 		t.Errorf("RabbitMQ should be unconfigured by default, got URL %q", cfg.RabbitMQ.URL)
+	}
+	if cfg.PreviewQueueCapacity != 8 {
+		t.Errorf("PreviewQueueCapacity = %d, want 8 (the default)", cfg.PreviewQueueCapacity)
+	}
+}
+
+func TestLoad_PreviewQueueCapacity_Custom(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("WOPI_PREVIEW_RENDER_QUEUE_CAPACITY", "3")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.PreviewQueueCapacity != 3 {
+		t.Errorf("PreviewQueueCapacity = %d, want 3", cfg.PreviewQueueCapacity)
+	}
+}
+
+func TestLoad_PreviewQueueCapacity_ZeroIsValid(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("WOPI_PREVIEW_RENDER_QUEUE_CAPACITY", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.PreviewQueueCapacity != 0 {
+		t.Errorf("PreviewQueueCapacity = %d, want 0", cfg.PreviewQueueCapacity)
+	}
+}
+
+func TestLoad_PreviewQueueCapacity_NegativeFailsStartup(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("WOPI_PREVIEW_RENDER_QUEUE_CAPACITY", "-1")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for negative WOPI_PREVIEW_RENDER_QUEUE_CAPACITY")
+	}
+}
+
+func TestLoad_PreviewQueueCapacity_InvalidFailsStartup(t *testing.T) {
+	t.Setenv("WOPI_TOKEN_SECRET", "secret")
+	t.Setenv("WOPI_PREVIEW_RENDER_QUEUE_CAPACITY", "not-a-number")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for non-integer WOPI_PREVIEW_RENDER_QUEUE_CAPACITY")
 	}
 }
 
