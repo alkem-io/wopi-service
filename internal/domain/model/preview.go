@@ -13,9 +13,15 @@ type PreviewCacheEntry struct {
 	SourceUpdatedDate time.Time
 }
 
-// previewExtensionByMIME maps the four existing Collabora document types to
-// the extension Collabora's thumbnail broker needs (mirrors server's
-// MIME_TO_DOCUMENT_TYPE allow-list, excluding the view-only PDF type).
+// previewExtensionByMIME maps every Collabora document type to the extension
+// Collabora's thumbnail broker needs — the full server MIME_TO_DOCUMENT_TYPE
+// allow-list, PDF included.
+//
+// PDF is here despite being view-only in the editor. That restriction exists
+// because Collabora corrupts a PDF it annotates and saves, so token issuance
+// forces PDFs read-only; rendering a thumbnail never writes anything, so the
+// hazard does not reach this path. Verified against the deployed image: a real
+// 337 KB PDF 1.7 renders to the same fixed 1200x630 PNG as the office formats.
 var previewExtensionByMIME = map[string]string{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 	"application/msword":                      "doc",
@@ -29,10 +35,11 @@ var previewExtensionByMIME = map[string]string{
 	"application/vnd.ms-powerpoint":                                             "ppt",
 	"application/vnd.oasis.opendocument.presentation":                           "odp",
 	"application/vnd.oasis.opendocument.graphics":                               "odg",
+	MimeTypePDF: "pdf",
 }
 
-// ErrUnsupportedPreviewSource is returned for a MIME type outside the four
-// existing Collabora document types eligible for preview.
+// ErrUnsupportedPreviewSource is returned for a MIME type outside the
+// Collabora document types eligible for preview.
 var ErrUnsupportedPreviewSource = fmt.Errorf("source is not a previewable Collabora document type")
 
 // PreviewExtension returns the file extension Collabora needs for
