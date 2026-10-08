@@ -11,6 +11,9 @@ type Document struct {
 	Size                  int64
 	AuthorizationPolicyID string
 
+	// StorageBucketID is the owning bucket a rendered preview is created in.
+	StorageBucketID string
+
 	// CreatedBy is the actor UUID of the document's original creator. May
 	// be empty for legacy or system-created documents — callers that need
 	// a stable per-file identity (WOPI CheckFileInfo `OwnerId`) should

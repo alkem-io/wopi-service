@@ -30,6 +30,9 @@ type Config struct {
 	// Collabora Online
 	CollaboraURL string
 
+	// PreviewQueueCapacity is the render admission queue's waiting capacity.
+	PreviewQueueCapacity int
+
 	// Service
 	BaseURL         string // Browser-facing URL (editor iframe src)
 	CallbackURL     string // Collabora server-side callback URL (WOPISrc); defaults to BaseURL
@@ -137,17 +140,12 @@ func Load() (*Config, error) {
 		ServerPort:     getEnv("WOPI_SERVER_PORT", "8080"),
 	}
 
-	maxLockLifetime, err := parseDuration(getEnv("WOPI_MAX_LOCK_LIFETIME", "4h"))
+	maxLockLifetime, previewQueueCapacity, err := loadLockAndQueueSettings()
 	if err != nil {
-		return nil, fmt.Errorf("invalid WOPI_MAX_LOCK_LIFETIME: %w", err)
-	}
-	// 0 explicitly disables the zombie-lock takeover defence (legacy
-	// unbounded refresh behaviour) — keep that operational mode reachable
-	// from env config. Negative values are nonsensical and rejected.
-	if maxLockLifetime < 0 {
-		return nil, fmt.Errorf("WOPI_MAX_LOCK_LIFETIME must be non-negative (use 0 to disable)")
+		return nil, err
 	}
 	cfg.MaxLockLifetime = maxLockLifetime
+	cfg.PreviewQueueCapacity = previewQueueCapacity
 
 	contributionWindow, err := parseDuration(getEnv("CONTRIBUTION_WINDOW", "600s"))
 	if err != nil {
@@ -196,6 +194,28 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// loadLockAndQueueSettings parses WOPI_MAX_LOCK_LIFETIME (0 explicitly
+// disables the zombie-lock takeover defence; negative is rejected) and
+// WOPI_PREVIEW_RENDER_QUEUE_CAPACITY (0 is a valid capacity). Extracted,
+// like loadBreakerConfig, to keep Load() within cyclomatic-complexity bounds.
+func loadLockAndQueueSettings() (time.Duration, int, error) {
+	maxLockLifetime, err := parseDuration(getEnv("WOPI_MAX_LOCK_LIFETIME", "4h"))
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid WOPI_MAX_LOCK_LIFETIME: %w", err)
+	}
+	if maxLockLifetime < 0 {
+		return 0, 0, fmt.Errorf("WOPI_MAX_LOCK_LIFETIME must be non-negative (use 0 to disable)")
+	}
+	previewQueueCapacity, err := parseIntStrict(getEnv("WOPI_PREVIEW_RENDER_QUEUE_CAPACITY", "8"))
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid WOPI_PREVIEW_RENDER_QUEUE_CAPACITY: %w", err)
+	}
+	if previewQueueCapacity < 0 {
+		return 0, 0, fmt.Errorf("WOPI_PREVIEW_RENDER_QUEUE_CAPACITY must be non-negative")
+	}
+	return maxLockLifetime, previewQueueCapacity, nil
 }
 
 // loadBreakerConfig parses and validates the AUTH_BREAKER_* env vars.
