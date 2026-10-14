@@ -19,6 +19,12 @@ type AccessToken struct {
 	ActorName   string             `json:"actor_name"`
 }
 
+type DocumentPreviewCache struct {
+	SourceFileID      string             `json:"source_file_id"`
+	PreviewFileID     string             `json:"preview_file_id"`
+	SourceUpdatedDate pgtype.Timestamptz `json:"source_updated_date"`
+}
+
 type Lock struct {
 	ID        pgtype.UUID        `json:"id"`
 	FileID    string             `json:"file_id"`

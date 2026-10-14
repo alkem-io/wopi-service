@@ -3,8 +3,10 @@ package fileservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"strings"
@@ -158,8 +160,8 @@ func TestFileClient_ReadFile_NotFound(t *testing.T) {
 
 	client := NewFileClient(url)
 	_, err := client.ReadFile(context.Background(), "missing")
-	if err == nil {
-		t.Error("expected error for not found")
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("error = %v, want wrapped fs.ErrNotExist", err)
 	}
 }
 
@@ -202,32 +204,149 @@ func TestFileClient_WriteFile_NotFound(t *testing.T) {
 	}
 }
 
-func TestFileClient_FileExists_True(t *testing.T) {
+func TestFileClient_FindByID_PopulatesStorageBucketID(t *testing.T) {
 	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(metaResponse{ID: "doc-1", StorageBucketID: "bucket-1"})
 	}))
 
 	client := NewFileClient(url)
-	exists, err := client.FileExists(context.Background(), "doc-1")
+	doc, err := client.FindByID(context.Background(), "doc-1")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if !exists {
-		t.Error("expected exists=true")
+	if doc.StorageBucketID != "bucket-1" {
+		t.Errorf("StorageBucketID = %q, want %q", doc.StorageBucketID, "bucket-1")
 	}
 }
 
-func TestFileClient_FileExists_False(t *testing.T) {
-	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+// TestFileClient_CreatePreviewFile_SendsSkipDedupAndNoAuthorization proves
+// the preview create call omits authorizationId and always sets
+// skipDedup=true while streaming the body — the handler reads and
+// echoes back the multipart fields it received rather than an assertion on
+// a pre-built request, so a streaming regression (e.g. accidental
+// buffering that drops a field) would show up as a wrong echoed value.
+// requestMultipartFields parses r's multipart body and returns each
+// non-file field's first value plus whether it was present at all, and the
+// "file" part's bytes.
+func requestMultipartFields(t *testing.T, r *http.Request) (fields map[string]string, hasAuth bool, fileBytes []byte) {
+	t.Helper()
+	if err := r.ParseMultipartForm(1 << 20); err != nil { //nolint:gosec // G120: test-only handler, fixed small fixture payload
+		t.Fatalf("parse multipart form: %v", err)
+	}
+	fields = make(map[string]string, len(r.MultipartForm.Value))
+	for name, values := range r.MultipartForm.Value {
+		if len(values) > 0 {
+			fields[name] = values[0]
+		}
+	}
+	_, hasAuth = r.MultipartForm.Value["authorizationId"]
+	parts := r.MultipartForm.File["file"]
+	if len(parts) == 1 {
+		f, err := parts[0].Open()
+		if err != nil {
+			t.Fatalf("open file part: %v", err)
+		}
+		defer func() { _ = f.Close() }()
+		fileBytes, _ = io.ReadAll(f)
+	}
+	return fields, hasAuth, fileBytes
+}
+
+func TestFileClient_CreatePreviewFile_SendsSkipDedupAndNoAuthorization(t *testing.T) {
+	var fields map[string]string
+	var hadAuthField bool
+	var gotBytes []byte
+
+	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/file" || r.Method != http.MethodPost {
+			t.Errorf("method/path = %s %s", r.Method, r.URL.Path)
+		}
+		fields, hadAuthField, gotBytes = requestMultipartFields(t, r)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(struct {
+			ID string `json:"id"`
+		}{ID: "preview-1"})
+	}))
+
+	client := NewFileClient(url)
+	id, err := client.CreatePreviewFile(context.Background(), "bucket-42", strings.NewReader("PNGBYTES"))
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if id != "preview-1" {
+		t.Errorf("id = %q", id)
+	}
+	if fields["storageBucketId"] != "bucket-42" {
+		t.Errorf("storageBucketId = %q", fields["storageBucketId"])
+	}
+	if fields["skipDedup"] != "true" {
+		t.Errorf("skipDedup = %q, want %q", fields["skipDedup"], "true")
+	}
+	if hadAuthField {
+		t.Error("authorizationId must be omitted entirely")
+	}
+	if string(gotBytes) != "PNGBYTES" {
+		t.Errorf("streamed content = %q", gotBytes)
+	}
+}
+
+func TestFileClient_CreatePreviewFile_NonCreatedStatusIsError(t *testing.T) {
+	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	client := NewFileClient(url)
+	if _, err := client.CreatePreviewFile(context.Background(), "bucket", strings.NewReader("x")); err == nil {
+		t.Error("expected error for non-201 status")
+	}
+}
+
+func TestFileClient_DeletePreviewFile_NotFoundIsNotAnError(t *testing.T) {
+	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method = %s", r.Method)
+		}
 		w.WriteHeader(http.StatusNotFound)
 	}))
 
 	client := NewFileClient(url)
-	exists, err := client.FileExists(context.Background(), "missing")
-	if err != nil {
-		t.Fatalf("error: %v", err)
+	if err := client.DeletePreviewFile(context.Background(), "already-gone"); err != nil {
+		t.Errorf("expected nil error for already-deleted file, got %v", err)
 	}
-	if exists {
-		t.Error("expected exists=false")
+}
+
+func TestFileClient_DeletePreviewFile_ServerErrorIsError(t *testing.T) {
+	url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	client := NewFileClient(url)
+	if err := client.DeletePreviewFile(context.Background(), "x"); err == nil {
+		t.Error("expected error for server failure")
+	}
+}
+
+// A 201 whose body carries no id must not be reported as success: the empty
+// string would be committed as preview_file_id, producing a mapping row that
+// can never resolve and that the cache-hit path keeps returning.
+func TestFileClient_CreatePreviewFile_EmptyIDIsError(t *testing.T) {
+	for _, body := range []string{`{}`, `{"id":""}`} {
+		url := startH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(body))
+		}))
+
+		client := NewFileClient(url)
+		id, err := client.CreatePreviewFile(context.Background(), "bucket", strings.NewReader("png"))
+		if err == nil {
+			t.Errorf("body %s: expected an error, got id %q", body, id)
+		}
+		if id != "" {
+			t.Errorf("body %s: expected empty id on error, got %q", body, id)
+		}
 	}
 }

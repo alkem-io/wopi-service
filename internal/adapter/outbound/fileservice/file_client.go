@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"strings"
@@ -53,6 +55,7 @@ type metaResponse struct {
 	CreatedBy       *string   `json:"createdBy,omitempty"`
 	AuthorizationID string    `json:"authorizationId"`
 	UpdatedDate     time.Time `json:"updatedDate"`
+	StorageBucketID string    `json:"storageBucketId"`
 }
 
 // FindByID retrieves document metadata from file-service.
@@ -95,6 +98,7 @@ func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Do
 		AuthorizationPolicyID: meta.AuthorizationID,
 		CreatedBy:             createdBy,
 		UpdatedAt:             meta.UpdatedDate,
+		StorageBucketID:       meta.StorageBucketID,
 	}, nil
 }
 
@@ -113,7 +117,7 @@ func (c *FileClient) ReadFile(ctx context.Context, documentID string) (io.ReadCl
 
 	if resp.StatusCode == http.StatusNotFound {
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("file not found: %s", documentID)
+		return nil, fmt.Errorf("%w: %s", fs.ErrNotExist, documentID)
 	}
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
@@ -152,19 +156,76 @@ func (c *FileClient) WriteFile(ctx context.Context, documentID string, content i
 	return &result, nil
 }
 
-// FileExists checks whether a document's file exists in storage.
-func (c *FileClient) FileExists(ctx context.Context, documentID string) (bool, error) {
-	url := fmt.Sprintf("%s/internal/file/%s/content", c.baseURL, documentID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+// CreatePreviewFile streams content into a NEW private file in
+// storageBucketID (skipDedup=true, no authorizationId) without buffering it.
+func (c *FileClient) CreatePreviewFile(ctx context.Context, storageBucketID string, content io.Reader) (string, error) {
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		err := mw.WriteField("storageBucketId", storageBucketID)
+		if err == nil {
+			err = mw.WriteField("skipDedup", "true")
+		}
+		if err == nil {
+			err = mw.WriteField("displayName", "collabora-preview.png")
+		}
+		if err == nil {
+			var part io.Writer
+			part, err = mw.CreateFormFile("file", "collabora-preview.png")
+			if err == nil {
+				_, err = io.Copy(part, content)
+			}
+		}
+		if err == nil {
+			err = mw.Close()
+		}
+		_ = pw.CloseWithError(err)
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/internal/file", pr)
 	if err != nil {
-		return false, fmt.Errorf("create exists request: %w", err)
+		return "", fmt.Errorf("create preview-file request: %w", err)
 	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("file-service exists: %w", err)
+		return "", fmt.Errorf("file-service create preview: %w", err)
 	}
-	_ = resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("file-service create preview status %d", resp.StatusCode)
+	}
 
-	return resp.StatusCode == http.StatusOK, nil
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		return "", fmt.Errorf("decode create preview response: %w", err)
+	}
+	// A 201 carrying no id would otherwise be committed as an empty
+	// preview_file_id: a mapping row that can never resolve, and which the
+	// cache-hit path keeps returning until the source's updatedDate changes.
+	if created.ID == "" {
+		return "", fmt.Errorf("file-service create preview returned no file id")
+	}
+	return created.ID, nil
+}
+
+// DeletePreviewFile best-effort deletes a superseded private preview file.
+// A 404 (already gone) is not an error.
+func (c *FileClient) DeletePreviewFile(ctx context.Context, fileID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/internal/file/"+fileID, nil)
+	if err != nil {
+		return fmt.Errorf("create delete-preview request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("file-service delete preview: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("file-service delete preview status %d", resp.StatusCode)
+	}
+	return nil
 }

@@ -76,6 +76,77 @@ paths:
                 $ref: '#/components/schemas/http.healthResponse'
           description: OK
       summary: LiveHandler handles the /live endpoint (process-local, no dependency checks).
+  /wopi-private/files/{fileID}/preview:
+    get:
+      description: |-
+        ServeHTTP resolves and streams the preview. Actor resolution and
+        rejection of a missing actor happen in ActorHeaderMiddleware first.
+      operationId: PreviewHandler.ServeHTTP
+      parameters:
+        - in: path
+          name: fileID
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            image/png:
+              schema:
+                format: binary
+                type: string
+          description: OK
+        "304":
+          description: Not Modified
+        "400":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Bad Request
+        "401":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Unauthorized
+        "403":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Forbidden
+        "404":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Not Found
+        "422":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Unprocessable Entity
+        "500":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Internal Server Error
+        "502":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Bad Gateway
+        "503":
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+          description: Service Unavailable
+      summary: ServeHTTP resolves and streams the preview.
   /wopi/files/{fileID}:
     get:
       operationId: WOPIHandler.CheckFileInfo
