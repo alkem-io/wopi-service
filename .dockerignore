@@ -10,3 +10,5 @@ specs/
 .env*
 *.log
 coverage.*
+
+.forge-evidence/
