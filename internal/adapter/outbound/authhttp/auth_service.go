@@ -103,7 +103,7 @@ func (s *AuthService) doRequest(ctx context.Context, payload []byte) (*port.Auth
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.httpClient.Do(httpReq) //nolint:gosec // G704: Destination is operator-configured AUTH_SERVICE_URL; actor and policy stay in the JSON body.
 	if err != nil {
 		return nil, err // transient — will be retried
 	}

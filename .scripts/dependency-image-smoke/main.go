@@ -71,6 +71,10 @@ func main() {
 		log.Fatal(err)
 	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/internal/") && r.ProtoMajor != 2 {
+			http.Error(w, "internal peers require h2c", http.StatusHTTPVersionNotSupported)
+			return
+		}
 		switch r.URL.Path {
 		case "/hosting/discovery":
 			fmt.Fprintf(w, `<wopi-discovery><net-zone name="external-http"><app name="writer"><action name="edit" ext="docx" urlsrc="http://fixture:8090/browser/edit?"/></app></net-zone><proof-key modulus="%s" exponent="%s"/></wopi-discovery>`, base64.StdEncoding.EncodeToString(key.N.Bytes()), base64.StdEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()))

@@ -35,7 +35,7 @@ func (r PutFileResponse) Render(w http.ResponseWriter) {
 
 // TokenIssuanceResponse is returned by POST /wopi/token.
 type TokenIssuanceResponse struct {
-	AccessToken string `json:"accessToken"`
+	AccessToken string `json:"accessToken"` //nolint:gosec // G117: This credential is intentionally returned only by the authenticated token issuance response.
 	TTL         int64  `json:"accessTokenTTL"`
 	WOPISrc     string `json:"wopiSrc"`
 	EditorURL   string `json:"editorUrl"`

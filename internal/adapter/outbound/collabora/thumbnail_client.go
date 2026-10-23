@@ -49,7 +49,7 @@ func (c *ThumbnailClient) Render(ctx context.Context, extension string, content 
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Destination is operator-configured WOPI_COLLABORA_URL plus a fixed thumbnail path.
 	if err != nil {
 		return nil, fmt.Errorf("thumbnail request: %w", err)
 	}

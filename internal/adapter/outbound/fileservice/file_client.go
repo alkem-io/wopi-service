@@ -60,7 +60,7 @@ func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Do
 		return nil, fmt.Errorf("create meta request: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return nil, fmt.Errorf("file-service meta: %w", err)
 	}
@@ -104,7 +104,7 @@ func (c *FileClient) ReadFile(ctx context.Context, documentID string) (io.ReadCl
 		return nil, fmt.Errorf("create read request: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return nil, fmt.Errorf("file-service read: %w", err)
 	}
@@ -130,7 +130,7 @@ func (c *FileClient) WriteFile(ctx context.Context, documentID string, content i
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return nil, fmt.Errorf("file-service write: %w", err)
 	}
@@ -182,7 +182,7 @@ func (c *FileClient) CreatePreviewFile(ctx context.Context, storageBucketID stri
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return "", fmt.Errorf("file-service create preview: %w", err)
 	}
@@ -213,7 +213,7 @@ func (c *FileClient) DeletePreviewFile(ctx context.Context, fileID string) error
 	if err != nil {
 		return fmt.Errorf("create delete-preview request: %w", err)
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return fmt.Errorf("file-service delete preview: %w", err)
 	}
