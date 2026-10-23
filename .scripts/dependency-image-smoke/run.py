@@ -73,10 +73,11 @@ try:
         created["volumes"].append(docker("volume", "create", "--label", "forge.run=" + prefix, name))
         record()
     db = start("db", ["-e", "POSTGRES_USER=smoke", "-e", "POSTGRES_PASSWORD=smoke", "-e", "POSTGRES_DB=wopi", "-v", prefix + "-db:/var/lib/postgresql/data"], images["db"])
-    broker = start("broker", ["-e", "RABBITMQ_DEFAULT_USER=smoke", "-e", "RABBITMQ_DEFAULT_PASS=smoke", "-v", prefix + "-broker:/var/lib/rabbitmq"], images["broker"])
+    broker = start("broker", ["-e", "RABBITMQ_DEFAULT_USER=smoke", "-e", "RABBITMQ_DEFAULT_PASS=smoke", "-e", "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=+S 2:2", "-v", prefix + "-broker:/var/lib/rabbitmq"], images["broker"])
     ready(["docker", "exec", db, "pg_isready", "-U", "smoke", "-d", "wopi"])
     ready(["docker", "exec", broker, "rabbitmq-diagnostics", "-q", "ping"])
     fixture = start("fixture", ["--entrypoint", "/smoke-fixture", "--mount", "type=bind,src=" + str(stage / "fixture") + ",dst=/smoke-fixture,readonly"], image)
+    ready(["docker", "exec", fixture, "/smoke-fixture", "broker-ready"])
     args = []
     for key, value in {"WOPI_DATABASE_HOST": "db", "WOPI_DATABASE_USERNAME": "smoke", "WOPI_DATABASE_PASSWORD": "smoke", "WOPI_DATABASE_NAME": "wopi", "AUTH_SERVICE_URL": "http://fixture:8090", "FILE_SERVICE_URL": "http://fixture:8090", "WOPI_COLLABORA_URL": "http://fixture:8090", "WOPI_BASE_URL": "http://wopi:8080", "WOPI_TOKEN_SECRET": "synthetic-private-test-secret", "WOPI_PROOF_VALIDATION": "true", "RABBITMQ_URL": "amqp://smoke:smoke@broker:5672/"}.items():
         args += ["-e", key + "=" + value]

@@ -31,6 +31,14 @@ const content = "synthetic WOPI file\n"
 var client = &http.Client{Timeout: 10 * time.Second}
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "broker-ready" {
+		conn, err := amqp.Dial("amqp://smoke:smoke@broker:5672/")
+		if err != nil {
+			log.Fatal(err)
+		}
+		_ = conn.Close()
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "ready" {
 		resp, err := client.Get("http://wopi:8080/health")
 		if err != nil {

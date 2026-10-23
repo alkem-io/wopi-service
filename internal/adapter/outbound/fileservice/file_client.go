@@ -4,18 +4,14 @@ package fileservice
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"strings"
 	"time"
-
-	"golang.org/x/net/http2"
 
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/port"
@@ -30,13 +26,11 @@ type FileClient struct {
 
 // NewFileClient creates a new h2c-capable FileClient.
 func NewFileClient(baseURL string) *FileClient {
-	transport := &http2.Transport{
-		AllowHTTP: true,
-		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, network, addr)
-		},
-	}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP2(true)
+	protocols.SetUnencryptedHTTP2(true)
+	transport := &http.Transport{Protocols: protocols}
+
 	return &FileClient{
 		baseURL:    strings.TrimSuffix(baseURL, "/"),
 		httpClient: &http.Client{Transport: transport, Timeout: 30 * time.Second},
