@@ -52,7 +52,7 @@ components:
 info:
   contact:
     email: info@alkem.io
-    name: Alkemio Foundation
+    name: Alkemio
     url: https://alkem.io
   description: |
     WOPI protocol host service for Collabora Online integration into
