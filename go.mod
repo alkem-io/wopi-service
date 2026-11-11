@@ -1,6 +1,6 @@
 module github.com/alkem-io/wopi-service
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/go-chi/chi/v5 v5.3.0
@@ -10,7 +10,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.14.2
 	github.com/nats-io/nats.go v1.52.0
 	github.com/pashagolub/pgxmock/v5 v5.1.0
-	github.com/rabbitmq/amqp091-go v1.13.0
+	github.com/rabbitmq/amqp091-go v1.14.0
 	github.com/sony/gobreaker/v2 v2.4.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/net v0.60.0
