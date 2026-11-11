@@ -51,7 +51,9 @@ func main() {
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "check" {
-		resp, err := client.Get("http://127.0.0.1:8090/test")
+		// The aggregate covers every sequential request plus the broker poll, so it gets its own longer budget.
+		checkClient := &http.Client{Timeout: 60 * time.Second}
+		resp, err := checkClient.Get("http://127.0.0.1:8090/test")
 		if err != nil {
 			log.Fatal(err)
 		}

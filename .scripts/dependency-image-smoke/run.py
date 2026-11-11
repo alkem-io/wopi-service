@@ -24,8 +24,9 @@ if not image.startswith("sha256:") or docker("image", "inspect", "--format", "{{
 prefix = "forge091-wopi-" + uuid.uuid4().hex[:12]
 stage = evidence / prefix
 stage.mkdir()
+arch = docker("image", "inspect", "--format", "{{.Architecture}}", image)
 subprocess.run(["go", "build", "-o", str(stage / "fixture"), ".scripts/dependency-image-smoke/main.go"], check=True,
-               env={**os.environ, "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": "amd64"})
+               env={**os.environ, "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": arch})
 os.chmod(stage / "fixture", 0o755)
 images = {"wopi": image, "db": docker("image", "inspect", "--format", "{{.Id}}", os.environ.get("SMOKE_POSTGRES_IMAGE", "postgres:17-alpine")),
           "broker": docker("image", "inspect", "--format", "{{.Id}}", os.environ.get("SMOKE_RABBITMQ_IMAGE", "rabbitmq:3-alpine"))}
@@ -51,10 +52,11 @@ def record():
 
 
 def start(name, args, image_id):
-    cid = docker("run", "-d", "--pull=never", "--name", prefix + "-" + name, "--network", prefix,
+    cid = docker("create", "--pull=never", "--name", prefix + "-" + name, "--network", prefix,
                  "--network-alias", name, "--label", "forge.run=" + prefix, *args, image_id)
     created["containers"].append(cid)
     record()
+    docker("start", cid)
     return cid
 
 
