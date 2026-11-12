@@ -4,18 +4,14 @@ package fileservice
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"strings"
 	"time"
-
-	"golang.org/x/net/http2"
 
 	"github.com/alkem-io/wopi-service/internal/domain/model"
 	"github.com/alkem-io/wopi-service/internal/domain/port"
@@ -30,13 +26,11 @@ type FileClient struct {
 
 // NewFileClient creates a new h2c-capable FileClient.
 func NewFileClient(baseURL string) *FileClient {
-	transport := &http2.Transport{
-		AllowHTTP: true,
-		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, network, addr)
-		},
-	}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP2(true)
+	protocols.SetUnencryptedHTTP2(true)
+	transport := &http.Transport{Protocols: protocols}
+
 	return &FileClient{
 		baseURL:    strings.TrimSuffix(baseURL, "/"),
 		httpClient: &http.Client{Transport: transport, Timeout: 30 * time.Second},
@@ -66,7 +60,7 @@ func (c *FileClient) FindByID(ctx context.Context, documentID string) (*model.Do
 		return nil, fmt.Errorf("create meta request: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return nil, fmt.Errorf("file-service meta: %w", err)
 	}
@@ -110,7 +104,7 @@ func (c *FileClient) ReadFile(ctx context.Context, documentID string) (io.ReadCl
 		return nil, fmt.Errorf("create read request: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return nil, fmt.Errorf("file-service read: %w", err)
 	}
@@ -136,7 +130,7 @@ func (c *FileClient) WriteFile(ctx context.Context, documentID string, content i
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return nil, fmt.Errorf("file-service write: %w", err)
 	}
@@ -188,7 +182,7 @@ func (c *FileClient) CreatePreviewFile(ctx context.Context, storageBucketID stri
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return "", fmt.Errorf("file-service create preview: %w", err)
 	}
@@ -219,7 +213,7 @@ func (c *FileClient) DeletePreviewFile(ctx context.Context, fileID string) error
 	if err != nil {
 		return fmt.Errorf("create delete-preview request: %w", err)
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Host is operator-configured FILE_SERVICE_URL; file and bucket IDs only enter paths or the body.
 	if err != nil {
 		return fmt.Errorf("file-service delete preview: %w", err)
 	}

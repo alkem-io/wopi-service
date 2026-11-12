@@ -257,7 +257,7 @@ func TestIntegration_HeadIsNotRoutedOnTheContentPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build HEAD request: %v", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: The integration target URL is explicitly operator-supplied, not received from an HTTP request.
 	if err != nil {
 		t.Fatalf("HEAD: %v", err)
 	}

@@ -71,7 +71,7 @@ func (c *DiscoveryClient) FetchDiscovery(ctx context.Context) (*port.DiscoveryDa
 		return nil, fmt.Errorf("create discovery request: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: Destination is operator-configured WOPI_COLLABORA_URL plus a fixed discovery path.
 	if err != nil {
 		return nil, fmt.Errorf("fetch discovery: %w", err)
 	}

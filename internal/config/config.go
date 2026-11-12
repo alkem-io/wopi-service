@@ -48,7 +48,7 @@ type DatabaseConfig struct {
 	Host     string
 	Port     string
 	Username string
-	Password string
+	Password string //nolint:gosec // G117: Database configuration is consumed by DSN construction, never serialized as an API response.
 	Name     string
 	Timeout  time.Duration
 }
