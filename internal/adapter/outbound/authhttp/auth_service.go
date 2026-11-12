@@ -5,15 +5,11 @@ package authhttp
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"time"
-
-	"golang.org/x/net/http2"
 
 	"github.com/alkem-io/wopi-service/internal/domain/port"
 )
@@ -32,13 +28,10 @@ type AuthService struct {
 
 // NewAuthService creates a new h2c-capable AuthService.
 func NewAuthService(baseURL string) *AuthService {
-	transport := &http2.Transport{
-		AllowHTTP: true,
-		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, network, addr)
-		},
-	}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP2(true)
+	protocols.SetUnencryptedHTTP2(true)
+	transport := &http.Transport{Protocols: protocols}
 
 	return &AuthService{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
@@ -110,7 +103,7 @@ func (s *AuthService) doRequest(ctx context.Context, payload []byte) (*port.Auth
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.httpClient.Do(httpReq) //nolint:gosec // G704: Destination is operator-configured AUTH_SERVICE_URL; actor and policy stay in the JSON body.
 	if err != nil {
 		return nil, err // transient — will be retried
 	}

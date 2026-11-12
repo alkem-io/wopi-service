@@ -66,7 +66,7 @@ func NewTokenService(
 
 // TokenIssuanceResult holds the response for a token issuance request.
 type TokenIssuanceResult struct {
-	AccessToken string
+	AccessToken string //nolint:gosec // G117: Internal issuance result is consumed by the authenticated token response, never logged or generically dumped.
 	TTL         int64  // UNIX timestamp in milliseconds
 	WOPISrc     string // Full WOPI file URL
 	EditorURL   string // Ready-to-use Collabora editor URL
